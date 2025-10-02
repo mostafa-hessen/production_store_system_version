@@ -1,59 +1,55 @@
 <?php
-// create_invoice.php (مُحدّث)
+// create_invoice.php (mysqli version)
 // إنشاء فاتورة — يدعم FIFO allocations, CSRF (meta + JS), اختيار عميل مثبت، إضافة عميل، created_by tracking.
 
 // ========== BOOT (config + session) ==========
 $page_title = "إنشاء فاتورة بيع";
 $class_dashboard = "active";
 require_once dirname(__DIR__) . '/config.php';
-require_once BASE_DIR . 'partials/session_admin.php'; // تأكد أن session_start() هنا وأن $_SESSION['user_id'] متوفر
+require_once BASE_DIR . 'partials/session_admin.php'; // تأكد أن session_start() هنا وأن $_SESSION['id'] متوفر
+
+// buffer to capture unexpected output for AJAX
 ob_start();
-// fallback PDO if not provided by config
-if (!isset($pdo)) {
-  try {
-    $db_host = '127.0.0.1';
-    $db_name = 'store_v1_db';
-    $db_user = 'root';
-    $db_pass = '';
-    $dsn = "mysql:host={$db_host};dbname={$db_name};charset=utf8mb4";
-    $pdo = new PDO($dsn, $db_user, $db_pass, [
-      PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-      PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
-  } catch (Exception $e) {
-    http_response_code(500);
-    echo "DB connection failed: " . htmlspecialchars($e->getMessage());
+
+// helper JSON (يجب أن يكون متاحًا مبكراً)
+function jsonOut($payload)
+{
+    if (!headers_sent()) header('Content-Type: application/json; charset=utf-8');
+    // clear any buffered output to avoid HTML leakage
+    if (ob_get_length() !== false) ob_clean();
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
     exit;
-  }
+}
+
+// تأكد أن $conn موجود وهو mysqli
+if (!isset($conn) || !($conn instanceof mysqli)) {
+    http_response_code(500);
+    die("خطأ: \$conn غير معرف أو ليس mysqli. تأكد من ملف config.php");
 }
 
 // CSRF token
 if (empty($_SESSION['csrf_token'])) {
-  $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 $csrf_token = $_SESSION['csrf_token'];
 
-// if (session_status() == PHP_SESSION_NONE) session_start();
+// تأكد وجود مستخدم مسجل
 if (empty($_SESSION['id'])) {
-  error_log("create_invoice: no session user_id. Session keys: " . json_encode(array_keys($_SESSION)));
-  jsonOut(['ok' => false, 'error' => 'المستخدم غير معرف. الرجاء تسجيل الدخول مجدداً.']);
+    error_log("create_invoice: no session user_id. Session keys: " . json_encode(array_keys($_SESSION)));
+    jsonOut(['ok' => false, 'error' => 'المستخدم غير معرف. الرجاء تسجيل الدخول مجدداً.']);
 }
 $created_by = (int)$_SESSION['id'];
 
+// جلب اسم المستخدم لعرضه في الـ JS (اختياري)
 $created_by_name_js = '';
-if (!empty($created_by)) {
-  // افترض $pdo معرف (PDO). عدّل حسب استخدامك للـ DB.
-  $stmt = $pdo->prepare("SELECT username FROM users WHERE id = ? LIMIT 1");
-  $stmt->execute([$created_by]);
-  $u = $stmt->fetch(PDO::FETCH_ASSOC);
-  if ($u) $created_by_name_js = addslashes($u['username']);
-}
-// Helper JSON
-function jsonOut($payload)
-{
-  header('Content-Type: application/json; charset=utf-8');
-  echo json_encode($payload, JSON_UNESCAPED_UNICODE);
-  exit;
+$stmtUser = $conn->prepare("SELECT username FROM users WHERE id = ? LIMIT 1");
+if ($stmtUser) {
+    $stmtUser->bind_param('i', $created_by);
+    $stmtUser->execute();
+    $resUser = $stmtUser->get_result();
+    $u = $resUser->fetch_assoc();
+    if ($u) $created_by_name_js = addslashes($u['username']);
+    $stmtUser->close();
 }
 
 /* =========================
@@ -61,334 +57,401 @@ function jsonOut($payload)
    Must run before any HTML output
    ========================= */
 if (isset($_REQUEST['action'])) {
-  $action = $_REQUEST['action'];
+    $action = $_REQUEST['action'];
 
-  // 0) sync_consumed
-  if ($action === 'sync_consumed') {
-    try {
-      $stmt = $pdo->prepare("UPDATE batches SET status = 'consumed', updated_at = NOW() WHERE status = 'active' AND COALESCE(remaining,0) <= 0");
-      $stmt->execute();
-      jsonOut(['ok' => true, 'updated' => $stmt->rowCount()]);
-    } catch (Exception $e) {
-      jsonOut(['ok' => false, 'error' => 'فشل تحديث حالات الدفعات.']);
-    }
-  }
-
-  // 1) products (with aggregates)
-  if ($action === 'products') {
-    $q = trim($_GET['q'] ?? '');
-    $params = [];
-    $where = '';
-    if ($q !== '') {
-      $where = " WHERE (p.name LIKE ? OR p.product_code LIKE ? OR p.id = ?)";
-      $params[] = "%$q%";
-      $params[] = "%$q%";
-      $params[] = is_numeric($q) ? (int)$q : 0;
-    }
-    $sql = "
-            SELECT p.id, p.product_code, p.name, p.unit_of_measure, p.current_stock, p.reorder_level,
-                   COALESCE(b.rem_sum,0) AS remaining_active,
-                   COALESCE(b.val_sum,0) AS stock_value_active,
-                   (SELECT b2.unit_cost FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_purchase_price,
-                   (SELECT b2.sale_price FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_sale_price,
-                   (SELECT b2.received_at FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_batch_date
-            FROM products p
-            LEFT JOIN (
-               SELECT product_id, SUM(remaining) AS rem_sum, SUM(remaining * unit_cost) AS val_sum
-               FROM batches
-               WHERE status = 'active' AND remaining > 0
-               GROUP BY product_id
-            ) b ON b.product_id = p.id
-            {$where}
-            ORDER BY p.id DESC
-            LIMIT 2000
-        ";
-    try {
-      $stmt = $pdo->prepare($sql);
-      $stmt->execute($params);
-      $rows = $stmt->fetchAll();
-      jsonOut(['ok' => true, 'products' => $rows]);
-    } catch (Exception $e) {
-      jsonOut(['ok' => false, 'error' => 'فشل جلب المنتجات.']);
-    }
-  }
-
-  // 2) batches list for a product
-  if ($action === 'batches' && isset($_GET['product_id'])) {
-    $product_id = (int)$_GET['product_id'];
-    try {
-      $stmt = $pdo->prepare("SELECT id, product_id, qty, remaining, original_qty, unit_cost, sale_price, received_at, expiry, notes, source_invoice_id, source_item_id, created_by, adjusted_by, adjusted_at, created_at, updated_at, revert_reason, cancel_reason, status FROM batches WHERE product_id = ? ORDER BY received_at DESC, created_at DESC, id DESC");
-      $stmt->execute([$product_id]);
-      $batches = $stmt->fetchAll();
-      $pstmt = $pdo->prepare("SELECT id, name, product_code FROM products WHERE id = ?");
-      $pstmt->execute([$product_id]);
-      $prod = $pstmt->fetch();
-      jsonOut(['ok' => true, 'batches' => $batches, 'product' => $prod]);
-    } catch (Exception $e) {
-      jsonOut(['ok' => false, 'error' => 'فشل جلب الدفعات.']);
-    }
-  }
-
-  // 3) customers list/search
-  if ($action === 'customers') {
-    $q = trim($_GET['q'] ?? '');
-    try {
-      if ($q === '') {
-        $stmt = $pdo->query("SELECT id,name,mobile,city,address FROM customers ORDER BY name LIMIT 200");
-        $rows = $stmt->fetchAll();
-      } else {
-        $stmt = $pdo->prepare("SELECT id,name,mobile,city,address FROM customers WHERE name LIKE ? OR mobile LIKE ? ORDER BY name LIMIT 200");
-        $like = "%$q%";
-        $stmt->execute([$like, $like]);
-        $rows = $stmt->fetchAll();
-      }
-      jsonOut(['ok' => true, 'customers' => $rows]);
-    } catch (Exception $e) {
-      jsonOut(['ok' => false, 'error' => 'فشل جلب العملاء.']);
-    }
-  }
-
-  // 4) add customer (POST)
-  // if ($action === 'add_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-  //     $token = $_POST['csrf_token'] ?? '';ٍ
-  //     if (!hash_equals($_SESSION['csrf_token'], (string)$token)) jsonOut(['ok'=>false,'error'=>'رمز التحقق (CSRF) غير صالح. أعد تحميل الصفحة وحاول مجدداً.']);
-  //     $name = trim($_POST['name'] ?? '');
-  //     $mobile = trim($_POST['mobile'] ?? '');
-  //     $city = trim($_POST['city'] ?? '');
-  //     $address = trim($_POST['address'] ?? '');
-  //     $notes = trim($_POST['notes'] ?? '');
-  //     if ($name === '') jsonOut(['ok'=>false,'error'=>'الرجاء إدخال اسم العميل.']);
-  //     try {
-  //         $stmt = $pdo->prepare("INSERT INTO customers (name,mobile,city,address,notes,created_by,created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
-  //         $stmt->execute([$name,$mobile,$city,$address,$notes,$created_by]);
-  //         $newId = (int)$pdo->lastInsertId();
-  //         $pstmt = $pdo->prepare("SELECT id,name,mobile,city,address FROM customers WHERE id = ?");
-  //         $pstmt->execute([$newId]);
-  //         $new = $pstmt->fetch();
-  //         jsonOut(['ok'=>true,'msg'=>'تم إضافة العميل','customer'=>$new]);
-  //     } catch (PDOException $e) {
-  //         if ($e->errorInfo[1] == 1062) jsonOut(['ok'=>false,'error'=>'العميل موجود مسبقاً.']);
-  //         jsonOut(['ok'=>false,'error'=>'فشل إضافة العميل.']);
-  //     } catch (Exception $e) {
-  //         jsonOut(['ok'=>false,'error'=>'فشل إضافة العميل.']);
-  //     }
-  // }
-
-  // 4) add customer (POST)
-  if ($action === 'add_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $token = $_POST['csrf_token'] ?? '';
-    if (!hash_equals($_SESSION['csrf_token'], (string)$token)) {
-      jsonOut(['ok' => false, 'error' => 'رمز التحقق (CSRF) غير صالح. أعد تحميل الصفحة وحاول مجدداً.']);
+    // 0) sync_consumed
+    if ($action === 'sync_consumed') {
+        try {
+            $stmt = $conn->prepare("UPDATE batches SET status = 'consumed', updated_at = NOW() WHERE status = 'active' AND COALESCE(remaining,0) <= 0");
+            if (!$stmt) throw new Exception($conn->error);
+            $stmt->execute();
+            $updated = $conn->affected_rows;
+            $stmt->close();
+            jsonOut(['ok' => true, 'updated' => $updated]);
+        } catch (Exception $e) {
+            jsonOut(['ok' => false, 'error' => 'فشل تحديث حالات الدفعات.', 'detail' => $e->getMessage()]);
+        }
     }
 
-    $name = trim($_POST['name'] ?? '');
-    $mobile = trim($_POST['mobile'] ?? '');
-    $city = trim($_POST['city'] ?? '');
-    $address = trim($_POST['address'] ?? '');
-    $notes = trim($_POST['notes'] ?? '');
+    // 1) products (with aggregates)
+    if ($action === 'products') {
+        $q = trim($_GET['q'] ?? '');
+        try {
+            if ($q === '') {
+                $sql = "
+                    SELECT p.id, p.product_code, p.name, p.unit_of_measure, p.current_stock, p.reorder_level,
+                           COALESCE(b.rem_sum,0) AS remaining_active,
+                           COALESCE(b.val_sum,0) AS stock_value_active,
+                           (SELECT b2.unit_cost FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_purchase_price,
+                           (SELECT b2.sale_price FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_sale_price,
+                           (SELECT b2.received_at FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_batch_date
+                    FROM products p
+                    LEFT JOIN (
+                       SELECT product_id, SUM(remaining) AS rem_sum, SUM(remaining * unit_cost) AS val_sum
+                       FROM batches
+                       WHERE status = 'active' AND remaining > 0
+                       GROUP BY product_id
+                    ) b ON b.product_id = p.id
+                    ORDER BY p.id DESC
+                    LIMIT 2000
+                ";
+                $res = $conn->query($sql);
+                if (!$res) throw new Exception($conn->error);
+                $rows = $res->fetch_all(MYSQLI_ASSOC);
+            } else {
+                $sql = "
+                    SELECT p.id, p.product_code, p.name, p.unit_of_measure, p.current_stock, p.reorder_level,
+                           COALESCE(b.rem_sum,0) AS remaining_active,
+                           COALESCE(b.val_sum,0) AS stock_value_active,
+                           (SELECT b2.unit_cost FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_purchase_price,
+                           (SELECT b2.sale_price FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_sale_price,
+                           (SELECT b2.received_at FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_batch_date
+                    FROM products p
+                    LEFT JOIN (
+                       SELECT product_id, SUM(remaining) AS rem_sum, SUM(remaining * unit_cost) AS val_sum
+                       FROM batches
+                       WHERE status = 'active' AND remaining > 0
+                       GROUP BY product_id
+                    ) b ON b.product_id = p.id
+                    WHERE (p.name LIKE ? OR p.product_code LIKE ? OR p.id = ?)
+                    ORDER BY p.id DESC
+                    LIMIT 2000
+                ";
+                $stmt = $conn->prepare($sql);
+                if (!$stmt) throw new Exception($conn->error);
+                $like = "%{$q}%";
+                $q_id = is_numeric($q) ? (int)$q : 0;
+                $stmt->bind_param('ssi', $like, $like, $q_id);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                $rows = $res->fetch_all(MYSQLI_ASSOC);
+                $stmt->close();
+            }
 
-    // 1) التحقق من الاسم
-    if ($name === '') {
-      jsonOut(['ok' => false, 'error' => 'الرجاء إدخال اسم العميل.']);
+            jsonOut(['ok' => true, 'products' => $rows]);
+        } catch (Exception $e) {
+            jsonOut(['ok' => false, 'error' => 'فشل جلب المنتجات.', 'detail' => $e->getMessage()]);
+        }
     }
 
-    // 2) التحقق من رقم الموبايل موجود أم لا
-    if ($mobile === '') {
-      jsonOut(['ok' => false, 'error' => 'الرجاء إدخال رقم الموبايل.']);
+    // 2) batches list for a product
+    if ($action === 'batches' && isset($_GET['product_id'])) {
+        $product_id = (int)$_GET['product_id'];
+        try {
+            $sql = "SELECT id, product_id, qty, remaining, original_qty, unit_cost, sale_price, received_at, expiry, notes, source_invoice_id, source_item_id, created_by, adjusted_by, adjusted_at, created_at, updated_at, revert_reason, cancel_reason, status FROM batches WHERE product_id = ? ORDER BY received_at DESC, created_at DESC, id DESC";
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) throw new Exception($conn->error);
+            $stmt->bind_param('i', $product_id);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $batches = $res->fetch_all(MYSQLI_ASSOC);
+            $stmt->close();
+
+            $pstmt = $conn->prepare("SELECT id, name, product_code FROM products WHERE id = ?");
+            if (!$pstmt) throw new Exception($conn->error);
+            $pstmt->bind_param('i', $product_id);
+            $pstmt->execute();
+            $pres = $pstmt->get_result();
+            $prod = $pres->fetch_assoc();
+            $pstmt->close();
+
+            jsonOut(['ok' => true, 'batches' => $batches, 'product' => $prod]);
+        } catch (Exception $e) {
+            jsonOut(['ok' => false, 'error' => 'فشل جلب الدفعات.', 'detail' => $e->getMessage()]);
+        }
     }
 
-    // 3) تنظيف و/أو تحقق بسيط لصيغة الموبايل (أرقام فقط)
-    $mobile_digits = preg_replace('/\D+/', '', $mobile); // احذف أي شيء غير رقم
-    if (strlen($mobile_digits) < 7 || strlen($mobile_digits) > 15) {
-      jsonOut(['ok' => false, 'error' => 'رقم الموبايل غير صحيح. الرجاء إدخال رقم صالح.']);
+    // 3) customers list/search
+    if ($action === 'customers') {
+        $q = trim($_GET['q'] ?? '');
+        try {
+            if ($q === '') {
+                $res = $conn->query("SELECT id,name,mobile,city,address FROM customers ORDER BY name LIMIT 200");
+                if (!$res) throw new Exception($conn->error);
+                $rows = $res->fetch_all(MYSQLI_ASSOC);
+            } else {
+                $stmt = $conn->prepare("SELECT id,name,mobile,city,address FROM customers WHERE name LIKE ? OR mobile LIKE ? ORDER BY name LIMIT 200");
+                if (!$stmt) throw new Exception($conn->error);
+                $like = "%{$q}%";
+                $stmt->bind_param('ss', $like, $like);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                $rows = $res->fetch_all(MYSQLI_ASSOC);
+                $stmt->close();
+            }
+            jsonOut(['ok' => true, 'customers' => $rows]);
+        } catch (Exception $e) {
+            jsonOut(['ok' => false, 'error' => 'فشل جلب العملاء.', 'detail' => $e->getMessage()]);
+        }
     }
-    // استخدم النسخة المنقّحة لِحفظها/مقارنتها
-    $mobile_clean = $mobile_digits;
 
-    try {
-      // 4) فحص التكرار قبل الإدراج (حسب رقم الموبايل)
-      $chk = $pdo->prepare("SELECT id, name FROM customers WHERE mobile = ? LIMIT 1");
-      $chk->execute([$mobile_clean]);
-      $exists = $chk->fetch();
-      if ($exists) {
-        // رسالة واضحة عند التكرار
-        jsonOut(['ok' => false, 'error' => "رقم الموبايل مسجل بالفعل للعميل \"{$exists['name']}\"."]);
-      }
-
-      // 5) تنفيذ الإدراج
-      $stmt = $pdo->prepare("INSERT INTO customers (name,mobile,city,address,notes,created_by,created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
-      $stmt->execute([$name, $mobile_clean, $city, $address, $notes, $created_by]);
-
-      $newId = (int)$pdo->lastInsertId();
-      $pstmt = $pdo->prepare("SELECT id,name,mobile,city,address FROM customers WHERE id = ?");
-      $pstmt->execute([$newId]);
-      $new = $pstmt->fetch();
-
-      jsonOut(['ok' => true, 'msg' => 'تم إضافة العميل', 'customer' => $new]);
-    } catch (PDOException $e) {
-      // تعامل مع أخطاء الـ PDO بشكل آمن
-      // إذا كان خطأ قيد فريد (1062) ظهر رغم الفحص، نرجع رسالة مفهومة
-      $sqlErrNo = $e->errorInfo[1] ?? null;
-      if ($sqlErrNo == 1062) {
-        jsonOut(['ok' => false, 'error' => 'قيمة مكررة — رقم الموبايل مستخدم بالفعل.']);
-      }
-      // سجل الخطأ للخادم وارجع رسالة عامة للمستخدم
-      error_log("PDO error add_customer: " . $e->getMessage());
-      jsonOut(['ok' => false, 'error' => 'فشل إضافة العميل. حاول مرة أخرى.']);
-    } catch (Exception $e) {
-      error_log("Error add_customer: " . $e->getMessage());
-      jsonOut(['ok' => false, 'error' => 'فشل إضافة العميل. حاول مرة أخرى.']);
-    }
-  }
-
-  // 5) select customer (store in session) - POST
-  if ($action === 'select_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $token = $_POST['csrf_token'] ?? '';
-    if (!hash_equals($_SESSION['csrf_token'], (string)$token)) jsonOut(['ok' => false, 'error' => 'رمز التحقق (CSRF) غير صالح.']);
-    $cid = (int)($_POST['customer_id'] ?? 0);
-    if ($cid <= 0) {
-      unset($_SESSION['selected_customer']);
-      jsonOut(['ok' => true, 'msg' => 'تم إلغاء اختيار العميل']);
-    }
-    try {
-      $stmt = $pdo->prepare("SELECT id,name,mobile,city,address FROM customers WHERE id = ?");
-      $stmt->execute([$cid]);
-      $cust = $stmt->fetch();
-      if (!$cust) jsonOut(['ok' => false, 'error' => 'العميل غير موجود']);
-      $_SESSION['selected_customer'] = $cust;
-      jsonOut(['ok' => true, 'customer' => $cust]);
-    } catch (Exception $e) {
-      jsonOut(['ok' => false, 'error' => 'تعذر اختيار العميل.']);
-    }
-  }
-
-  // 6) save_invoice (POST)
-  if ($action === 'save_invoice' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $token = $_POST['csrf_token'] ?? '';
-    if (!hash_equals($_SESSION['csrf_token'], (string)$token)) {
-      jsonOut(['ok' => false, 'error' => 'رمز التحقق (CSRF) غير صالح. أعد تحميل الصفحة وحاول مجدداً.']);
-    }
-    $customer_id = (int)($_POST['customer_id'] ?? 0);
-    $status = ($_POST['status'] ?? 'pending') === 'paid' ? 'paid' : 'pending';
-    $items_json = $_POST['items'] ?? '';
-    $notes = trim($_POST['notes'] ?? '');
-    $created_by = $_SESSION['id'] ?? null;
-
-    if ($customer_id <= 0) jsonOut(['ok' => false, 'error' => 'الرجاء اختيار عميل.']);
-    if (empty($items_json)) jsonOut(['ok' => false, 'error' => 'لا توجد بنود لإضافة الفاتورة.']);
-
-    $items = json_decode($items_json, true);
-    if (!is_array($items) || count($items) === 0) jsonOut(['ok' => false, 'error' => 'بنود الفاتورة غير صالحة.']);
-
-    try {
-      $pdo->beginTransaction();
-
-      // insert invoice header
-      $delivered = ($status === 'paid') ? 'yes' : 'no';
-      $invoice_group = 'group1';
-      $stmt = $pdo->prepare("INSERT INTO invoices_out (customer_id, delivered, invoice_group, created_by, created_at, notes) VALUES (?, ?, ?, ?, NOW(), ?)");
-      $stmt->execute([$customer_id, $delivered, $invoice_group, $created_by, $notes]);
-      $invoice_id = (int)$pdo->lastInsertId();
-
-      $totalRevenue = 0.0;
-      $totalCOGS = 0.0;
-
-      $insertItemStmt = $pdo->prepare("INSERT INTO invoice_out_items (invoice_out_id, product_id, quantity, total_price, cost_price_per_unit, selling_price, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
-      $insertAllocStmt = $pdo->prepare("INSERT INTO sale_item_allocations (sale_item_id, batch_id, qty, unit_cost, line_cost, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
-      $updateBatchStmt = $pdo->prepare("UPDATE batches SET remaining = ?, status = ?, adjusted_at = NOW(), adjusted_by = ? WHERE id = ?");
-      $selectBatchesStmt = $pdo->prepare("SELECT id, remaining, unit_cost FROM batches WHERE product_id = ? AND status = 'active' AND remaining > 0 ORDER BY received_at ASC, created_at ASC, id ASC FOR UPDATE");
-
-      foreach ($items as $it) {
-        $product_id = (int)($it['product_id'] ?? 0);
-        $qty = (float)($it['qty'] ?? 0);
-        $selling_price = (float)($it['selling_price'] ?? 0);
-        if ($product_id <= 0 || $qty <= 0) {
-          $pdo->rollBack();
-          jsonOut(['ok' => false, 'error' => "بند غير صالح (معرف/كمية)."]);
+    // 4) add customer (POST)
+    if ($action === 'add_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $token = $_POST['csrf_token'] ?? '';
+        if (!hash_equals($_SESSION['csrf_token'], (string)$token)) {
+            jsonOut(['ok' => false, 'error' => 'رمز التحقق (CSRF) غير صالح. أعد تحميل الصفحة وحاول مجدداً.']);
         }
 
-        // allocate FIFO
-        $selectBatchesStmt->execute([$product_id]);
-        $availableBatches = $selectBatchesStmt->fetchAll();
-        $need = $qty;
-        $allocations = [];
-        foreach ($availableBatches as $b) {
-          if ($need <= 0) break;
-          $avail = (float)$b['remaining'];
-          if ($avail <= 0) continue;
-          $take = min($avail, $need);
-          $allocations[] = ['batch_id' => (int)$b['id'], 'take' => $take, 'unit_cost' => (float)$b['unit_cost']];
-          $need -= $take;
+        $name = trim($_POST['name'] ?? '');
+        $mobile = trim($_POST['mobile'] ?? '');
+        $city = trim($_POST['city'] ?? '');
+        $address = trim($_POST['address'] ?? '');
+        $notes = trim($_POST['notes'] ?? '');
+
+        if ($name === '') jsonOut(['ok' => false, 'error' => 'الرجاء إدخال اسم العميل.']);
+        if ($mobile === '') jsonOut(['ok' => false, 'error' => 'الرجاء إدخال رقم الموبايل.']);
+
+        $mobile_digits = preg_replace('/\D+/', '', $mobile);
+        if (strlen($mobile_digits) < 7 || strlen($mobile_digits) > 15) {
+            jsonOut(['ok' => false, 'error' => 'رقم الموبايل غير صحيح. الرجاء إدخال رقم صالح.']);
         }
-        if ($need > 0.00001) {
-          $pdo->rollBack();
-          jsonOut(['ok' => false, 'error' => "الرصيد غير كافٍ للمنتج (ID: {$product_id})."]);
+        $mobile_clean = $mobile_digits;
+        $created_by_i = (int)$created_by;
+
+        try {
+            $chk = $conn->prepare("SELECT id, name FROM customers WHERE mobile = ? LIMIT 1");
+            if (!$chk) throw new Exception($conn->error);
+            $chk->bind_param('s', $mobile_clean);
+            $chk->execute();
+            $cres = $chk->get_result();
+            $exists = $cres->fetch_assoc();
+            $chk->close();
+
+            if ($exists) {
+                jsonOut(['ok' => false, 'error' => "رقم الموبايل مسجل بالفعل للعميل \"{$exists['name']}\"."]);
+            }
+
+            $stmt = $conn->prepare("INSERT INTO customers (name,mobile,city,address,notes,created_by,created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+            if (!$stmt) throw new Exception($conn->error);
+            $stmt->bind_param('sssssi', $name, $mobile_clean, $city, $address, $notes, $created_by_i);
+            $stmt->execute();
+            if ($stmt->errno) {
+                $err = $stmt->error;
+                $stmt->close();
+                throw new Exception($err);
+            }
+            $newId = (int)$conn->insert_id;
+            $stmt->close();
+
+            $pstmt = $conn->prepare("SELECT id,name,mobile,city,address FROM customers WHERE id = ?");
+            if (!$pstmt) throw new Exception($conn->error);
+            $pstmt->bind_param('i', $newId);
+            $pstmt->execute();
+            $pres = $pstmt->get_result();
+            $new = $pres->fetch_assoc();
+            $pstmt->close();
+
+            jsonOut(['ok' => true, 'msg' => 'تم إضافة العميل', 'customer' => $new]);
+        } catch (Exception $e) {
+            // تحقق من duplicate key عبر كود الخطأ من MySQL (إذا ظهر)
+            $errMsg = $e->getMessage();
+            if (strpos($errMsg, 'Duplicate') !== false || strpos($errMsg, 'duplicate') !== false) {
+                jsonOut(['ok' => false, 'error' => 'قيمة مكررة — رقم الموبايل مستخدم بالفعل.']);
+            }
+            error_log("MySQL add_customer error: " . $e->getMessage());
+            jsonOut(['ok' => false, 'error' => 'فشل إضافة العميل. حاول مرة أخرى.']);
         }
-        $itemTotalCost = 0.0;
-        foreach ($allocations as $a) $itemTotalCost += $a['take'] * $a['unit_cost'];
-        $cost_price_per_unit = ($qty > 0) ? ($itemTotalCost / $qty) : 0.0;
-        $lineTotalPrice = $qty * $selling_price;
-
-        // insert invoice item
-        $insertItemStmt->execute([$invoice_id, $product_id, $qty, $lineTotalPrice, $cost_price_per_unit, $selling_price]);
-        $invoice_item_id = (int)$pdo->lastInsertId();
-
-        // apply allocations and update batches
-        foreach ($allocations as $a) {
-          // lock & get current remaining
-          $stmtCur = $pdo->prepare("SELECT remaining FROM batches WHERE id = ? FOR UPDATE");
-          $stmtCur->execute([$a['batch_id']]);
-          $curRow = $stmtCur->fetch();
-          $curRem = $curRow ? (float)$curRow['remaining'] : 0.0;
-          $newRem = max(0.0, $curRem - $a['take']);
-          $newStatus = ($newRem <= 0) ? 'consumed' : 'active';
-          $updateBatchStmt->execute([$newRem, $newStatus, $created_by, $a['batch_id']]);
-
-          $lineCost = $a['take'] * $a['unit_cost'];
-          $insertAllocStmt->execute([$invoice_item_id, $a['batch_id'], $a['take'], $a['unit_cost'], $lineCost, $created_by]);
-        }
-
-        $totalRevenue += $lineTotalPrice;
-        $totalCOGS += $itemTotalCost;
-      }
-
-      $pdo->commit();
-      jsonOut([
-        'ok' => true,
-        'msg' => 'تم إنشاء الفاتورة بنجاح.',
-        'invoice_id' => $invoice_id,
-        'invoice_number' => $invoice_id, // أو أي حقل آخر يمثل رقم الفاتورة
-        'total_revenue' => round($totalRevenue, 2),
-        'total_cogs' => round($totalCOGS, 2)
-      ]);
-
-      // jsonOut(['ok'=>true,'msg'=>'تم إنشاء الفاتورة بنجاح.','invoice_id'=>$invoice_id,'total_revenue'=>round($totalRevenue,2),'total_cogs'=>round($totalCOGS,2)]);
-    } catch (PDOException $e) {
-      if ($pdo->inTransaction()) $pdo->rollBack();
-      $err = $e->errorInfo[1] ?? null;
-      if ($err == 1062) jsonOut(['ok' => false, 'error' => 'قيمة مكررة: تحقق من الحقول الفريدة.']);
-      error_log("PDO Error save_invoice: " . $e->getMessage());
-      jsonOut(['ok' => false, 'error' => 'حدث خطأ أثناء حفظ الفاتورة.']);
-    } catch (Exception $e) {
-      if ($pdo->inTransaction()) $pdo->rollBack();
-      error_log("Error save_invoice: " . $e->getMessage());
-      jsonOut(['ok' => false, 'error' => 'حدث خطأ أثناء حفظ الفاتورة.']);
     }
-  }
 
-  // NEW: return next invoice number (approx) — used to show "رقم الفاتورة" قبل الحفظ
-  if ($action === 'next_invoice_number') {
-    try {
-      $row = $pdo->query("SELECT COALESCE(MAX(id),0)+1 AS next_id FROM invoices_out")->fetch();
-      jsonOut(['ok' => true, 'next' => (int)$row['next_id']]);
-    } catch (Exception $e) {
-      jsonOut(['ok' => false, 'error' => 'فشل جلب رقم الفاتورة التالي.']);
+    // 5) select customer (store in session) - POST
+    if ($action === 'select_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $token = $_POST['csrf_token'] ?? '';
+        if (!hash_equals($_SESSION['csrf_token'], (string)$token)) jsonOut(['ok' => false, 'error' => 'رمز التحقق (CSRF) غير صالح.']);
+        $cid = (int)($_POST['customer_id'] ?? 0);
+        if ($cid <= 0) {
+            unset($_SESSION['selected_customer']);
+            jsonOut(['ok' => true, 'msg' => 'تم إلغاء اختيار العميل']);
+        }
+        try {
+            $stmt = $conn->prepare("SELECT id,name,mobile,city,address FROM customers WHERE id = ?");
+            if (!$stmt) throw new Exception($conn->error);
+            $stmt->bind_param('i', $cid);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $cust = $res->fetch_assoc();
+            $stmt->close();
+            if (!$cust) jsonOut(['ok' => false, 'error' => 'العميل غير موجود']);
+            $_SESSION['selected_customer'] = $cust;
+            jsonOut(['ok' => true, 'customer' => $cust]);
+        } catch (Exception $e) {
+            jsonOut(['ok' => false, 'error' => 'تعذر اختيار العميل.', 'detail' => $e->getMessage()]);
+        }
     }
-  }
-  // unknown action
-  jsonOut(['ok' => false, 'error' => 'action غير معروف']);
-}
-// end AJAX handling
+
+    // 6) save_invoice (POST)
+    if ($action === 'save_invoice' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $token = $_POST['csrf_token'] ?? '';
+        if (!hash_equals($_SESSION['csrf_token'], (string)$token)) {
+            jsonOut(['ok' => false, 'error' => 'رمز التحقق (CSRF) غير صالح. أعد تحميل الصفحة وحاول مجدداً.']);
+        }
+
+        $customer_id = (int)($_POST['customer_id'] ?? 0);
+        $status = ($_POST['status'] ?? 'pending') === 'paid' ? 'paid' : 'pending';
+        $items_json = $_POST['items'] ?? '';
+        $notes = trim($_POST['notes'] ?? '');
+        $created_by_i = (int)($_SESSION['id'] ?? 0);
+
+        if ($customer_id <= 0) jsonOut(['ok' => false, 'error' => 'الرجاء اختيار عميل.']);
+        if (empty($items_json)) jsonOut(['ok' => false, 'error' => 'لا توجد بنود لإضافة الفاتورة.']);
+
+        $items = json_decode($items_json, true);
+        if (!is_array($items) || count($items) === 0) jsonOut(['ok' => false, 'error' => 'بنود الفاتورة غير صالحة.']);
+
+        try {
+            // begin transaction
+            $conn->begin_transaction();
+
+            // insert invoice header
+            $delivered = ($status === 'paid') ? 'yes' : 'no';
+            $invoice_group = 'group1';
+            $stmt = $conn->prepare("INSERT INTO invoices_out (customer_id, delivered, invoice_group, created_by, created_at, notes) VALUES (?, ?, ?, ?, NOW(), ?)");
+            if (!$stmt) throw new Exception($conn->error);
+            $stmt->bind_param('issis', $customer_id, $delivered, $invoice_group, $created_by_i, $notes);
+            // Note: bind types: i(customer_id), s(delivered), s(invoice_group) but I used 'issis' for ordering
+            // To ensure correct binding, reorder: customer_id (i), delivered (s), invoice_group (s), created_by (i), notes (s) => 'issis'
+            $stmt->execute();
+            if ($stmt->errno) { $e = $stmt->error; $stmt->close(); throw new Exception($e); }
+            $invoice_id = (int)$conn->insert_id;
+            $stmt->close();
+
+            $totalRevenue = 0.0;
+            $totalCOGS = 0.0;
+
+            // prepare commonly used statements
+            $insertItemStmt = $conn->prepare("INSERT INTO invoice_out_items (invoice_out_id, product_id, quantity, total_price, cost_price_per_unit, selling_price, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+            if (!$insertItemStmt) throw new Exception($conn->error);
+
+            $insertAllocStmt = $conn->prepare("INSERT INTO sale_item_allocations (sale_item_id, batch_id, qty, unit_cost, line_cost, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+            if (!$insertAllocStmt) throw new Exception($conn->error);
+
+            $updateBatchStmt = $conn->prepare("UPDATE batches SET remaining = ?, status = ?, adjusted_at = NOW(), adjusted_by = ? WHERE id = ?");
+            if (!$updateBatchStmt) throw new Exception($conn->error);
+
+            $selectBatchesStmt = $conn->prepare("SELECT id, remaining, unit_cost FROM batches WHERE product_id = ? AND status = 'active' AND remaining > 0 ORDER BY received_at ASC, created_at ASC, id ASC FOR UPDATE");
+            if (!$selectBatchesStmt) throw new Exception($conn->error);
+
+            foreach ($items as $it) {
+                $product_id = (int)($it['product_id'] ?? 0);
+                $qty = (float)($it['qty'] ?? 0);
+                $selling_price = (float)($it['selling_price'] ?? 0);
+                if ($product_id <= 0 || $qty <= 0) {
+                    $conn->rollback();
+                    jsonOut(['ok' => false, 'error' => "بند غير صالح (معرف/كمية)."]);
+                }
+
+                // allocate FIFO
+                $selectBatchesStmt->bind_param('i', $product_id);
+                $selectBatchesStmt->execute();
+                $bres = $selectBatchesStmt->get_result();
+                $availableBatches = $bres->fetch_all(MYSQLI_ASSOC);
+
+                $need = $qty;
+                $allocations = [];
+                foreach ($availableBatches as $b) {
+                    if ($need <= 0) break;
+                    $avail = (float)$b['remaining'];
+                    if ($avail <= 0) continue;
+                    $take = min($avail, $need);
+                    $allocations[] = ['batch_id' => (int)$b['id'], 'take' => $take, 'unit_cost' => (float)$b['unit_cost']];
+                    $need -= $take;
+                }
+                if ($need > 0.00001) {
+                    $conn->rollback();
+                    jsonOut(['ok' => false, 'error' => "الرصيد غير كافٍ للمنتج (ID: {$product_id})."]);
+                }
+
+                $itemTotalCost = 0.0;
+                foreach ($allocations as $a) $itemTotalCost += $a['take'] * $a['unit_cost'];
+                $cost_price_per_unit = ($qty > 0) ? ($itemTotalCost / $qty) : 0.0;
+                $lineTotalPrice = $qty * $selling_price;
+
+                // insert invoice item
+                // types: invoice_id(i), product_id(i), quantity(d), total_price(d), cost_price_per_unit(d), selling_price(d) => 'iidddd'
+                $invoice_id_i = $invoice_id;
+                $prod_id_i = $product_id;
+                $insertItemStmt->bind_param('iidddd', $invoice_id_i, $prod_id_i, $qty, $lineTotalPrice, $cost_price_per_unit, $selling_price);
+                $insertItemStmt->execute();
+                if ($insertItemStmt->errno) { $err = $insertItemStmt->error; $insertItemStmt->close(); throw new Exception($err); }
+                $invoice_item_id = (int)$conn->insert_id;
+
+                // apply allocations and update batches
+                foreach ($allocations as $a) {
+                    // lock & get current remaining (FOR UPDATE)
+                    $stmtCur = $conn->prepare("SELECT remaining FROM batches WHERE id = ? FOR UPDATE");
+                    if (!$stmtCur) { $conn->rollback(); throw new Exception($conn->error); }
+                    $batch_id_i = $a['batch_id'];
+                    $stmtCur->bind_param('i', $batch_id_i);
+                    $stmtCur->execute();
+                    $cres = $stmtCur->get_result();
+                    $curRow = $cres->fetch_assoc();
+                    $stmtCur->close();
+
+                    $curRem = $curRow ? (float)$curRow['remaining'] : 0.0;
+                    $newRem = max(0.0, $curRem - $a['take']);
+                    $newStatus = ($newRem <= 0) ? 'consumed' : 'active';
+
+                    // update batch: remaining (d), status (s), adjusted_by (i), id (i)
+                    $updateBatchStmt->bind_param('dsii', $newRem, $newStatus, $created_by_i, $batch_id_i);
+                    $updateBatchStmt->execute();
+                    if ($updateBatchStmt->errno) { $err = $updateBatchStmt->error; $updateBatchStmt->close(); throw new Exception($err); }
+
+                    $lineCost = $a['take'] * $a['unit_cost'];
+
+                    // insert allocation: sale_item_id(i), batch_id(i), qty(d), unit_cost(d), line_cost(d), created_by(i) => 'iidddi'
+                    $sale_item_id_i = $invoice_item_id;
+                    $batch_i = $batch_id_i;
+                    $qty_d = $a['take'];
+                    $unit_cost_d = $a['unit_cost'];
+                    $line_cost_d = $lineCost;
+                    $insertAllocStmt->bind_param('iidddi', $sale_item_id_i, $batch_i, $qty_d, $unit_cost_d, $line_cost_d, $created_by_i);
+                    $insertAllocStmt->execute();
+                    if ($insertAllocStmt->errno) { $err = $insertAllocStmt->error; $insertAllocStmt->close(); throw new Exception($err); }
+                }
+
+                $totalRevenue += $lineTotalPrice;
+                $totalCOGS += $itemTotalCost;
+            } // end foreach items
+
+            // commit
+            $conn->commit();
+
+            jsonOut([
+                'ok' => true,
+                'msg' => 'تم إنشاء الفاتورة بنجاح.',
+                'invoice_id' => $invoice_id,
+                'invoice_number' => $invoice_id,
+                'total_revenue' => round($totalRevenue, 2),
+                'total_cogs' => round($totalCOGS, 2)
+            ]);
+        } catch (Exception $e) {
+            if ($conn->in_transaction) {
+                // procedural property check fallback
+                @$conn->rollback();
+            } else {
+                // mysqli has method rollback()
+                @$conn->rollback();
+            }
+            error_log("save_invoice error: " . $e->getMessage());
+            jsonOut(['ok' => false, 'error' => 'حدث خطأ أثناء حفظ الفاتورة.', 'detail' => $e->getMessage()]);
+        }
+    }
+
+    // NEW: return next invoice number (approx)
+    if ($action === 'next_invoice_number') {
+        try {
+            $res = $conn->query("SELECT COALESCE(MAX(id),0)+1 AS next_id FROM invoices_out");
+            if (!$res) throw new Exception($conn->error);
+            $row = $res->fetch_assoc();
+            jsonOut(['ok' => true, 'next' => (int)$row['next_id']]);
+        } catch (Exception $e) {
+            jsonOut(['ok' => false, 'error' => 'فشل جلب رقم الفاتورة التالي.', 'detail' => $e->getMessage()]);
+        }
+    }
+
+    // unknown action
+    jsonOut(['ok' => false, 'error' => 'action غير معروف']);
+} // end if action
+
 
 // Read selected customer from session (if any) to pre-fill UI
 $selected_customer_js = 'null';

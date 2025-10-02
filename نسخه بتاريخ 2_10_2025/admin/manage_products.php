@@ -22,31 +22,19 @@ if (empty($_SESSION['csrf_token'])) {
 }
 $csrf_token = $_SESSION['csrf_token'];
 
-/* -------------------------------------------
-   DB fallback (in case config.php didn't set $pdo)
-   ------------------------------------------- */
-if (!isset($pdo)) {
-    try {
-        $db_host = '127.0.0.1';
-        $db_name = 'store_v1_db';
-        $db_user = 'root';
-        $db_pass = '';
-        $dsn = "mysql:host={$db_host};dbname={$db_name};charset=utf8mb4";
-        $pdo = new PDO($dsn, $db_user, $db_pass, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        ]);
-    } catch (Exception $e) {
-        http_response_code(500);
-        die("DB connection failed: " . htmlspecialchars($e->getMessage()));
-    }
-}
-
 /* helper JSON output */
 function jsonOut($data) {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+/* =============
+   تأكد أن $conn موجود (من config.php)
+   ============= */
+if (!isset($conn) || !($conn instanceof mysqli)) {
+    http_response_code(500);
+    die("خطأ: اتصال قاعدة البيانات \$conn غير معرف أو ليس mysqli. تأكد من ملف config.php");
 }
 
 /* =========================
@@ -58,9 +46,12 @@ if (isset($_REQUEST['action'])) {
     // 0) sync consumed: convert batches with remaining <= 0 from active -> consumed
     if ($action === 'sync_consumed') {
         try {
-            $stmt = $pdo->prepare("UPDATE batches SET status = 'consumed', updated_at = NOW() WHERE status = 'active' AND COALESCE(remaining,0) <= 0");
+            $stmt = $conn->prepare("UPDATE batches SET status = 'consumed', updated_at = NOW() WHERE status = 'active' AND COALESCE(remaining,0) <= 0");
+            if (!$stmt) throw new Exception($conn->error);
             $stmt->execute();
-            jsonOut(['ok'=>true, 'updated' => $stmt->rowCount()]);
+            $updated = $conn->affected_rows;
+            $stmt->close();
+            jsonOut(['ok'=>true, 'updated' => $updated]);
         } catch (Exception $e) {
             jsonOut(['ok'=>false,'error'=>$e->getMessage()]);
         }
@@ -73,8 +64,11 @@ if (isset($_REQUEST['action'])) {
         $where = '';
         if ($search !== '') {
             $where = " WHERE (p.name LIKE ? OR p.product_code LIKE ?)";
-            $params[] = "%$search%"; $params[] = "%$search%";
+            $like = "%{$search}%";
+            $params[] = $like;
+            $params[] = $like;
         }
+
         $sql = "
             SELECT p.id, p.product_code, p.name, p.unit_of_measure, p.current_stock, p.reorder_level, p.created_at,
                    p.cost_price AS base_cost_price, p.selling_price AS base_selling_price,
@@ -95,9 +89,27 @@ if (isset($_REQUEST['action'])) {
             ORDER BY p.id DESC
             LIMIT 2000
         ";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
-        $rows = $stmt->fetchAll();
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            jsonOut(['ok'=>false,'error'=>'SQL prepare error: '.$conn->error]);
+        }
+
+        if (!empty($params)) {
+            // bind params dynamically (all strings here)
+            if (count($params) === 2) {
+                $stmt->bind_param('ss', $params[0], $params[1]);
+            } else {
+                // unlikely: fallback
+                $types = str_repeat('s', count($params));
+                $stmt->bind_param($types, ...$params);
+            }
+        }
+
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $rows = $res->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
         jsonOut(['ok'=>true,'products'=>$rows]);
     }
 
@@ -105,100 +117,149 @@ if (isset($_REQUEST['action'])) {
     if ($action === 'batches' && isset($_GET['product_id'])) {
         $product_id = (int)$_GET['product_id'];
         $sql = "SELECT id, product_id, qty, remaining, original_qty, unit_cost, sale_price, received_at, expiry, notes, source_invoice_id, source_item_id, created_by, adjusted_by, adjusted_at, created_at, updated_at, revert_reason, cancel_reason, status FROM batches WHERE product_id = ? ORDER BY received_at DESC, created_at DESC, id DESC";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute([$product_id]);
-        $rows = $stmt->fetchAll();
-        $pstmt = $pdo->prepare("SELECT name, product_code FROM products WHERE id = ?");
-        $pstmt->execute([$product_id]);
-        $prod = $pstmt->fetch();
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) jsonOut(['ok'=>false,'error'=>$conn->error]);
+        $stmt->bind_param('i', $product_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $rows = $res->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+
+        $pstmt = $conn->prepare("SELECT name, product_code FROM products WHERE id = ?");
+        if (!$pstmt) jsonOut(['ok'=>false,'error'=>$conn->error]);
+        $pstmt->bind_param('i', $product_id);
+        $pstmt->execute();
+        $pres = $pstmt->get_result();
+        $prod = $pres->fetch_assoc();
+        $pstmt->close();
+
         jsonOut(['ok'=>true,'batches'=>$rows,'product'=>$prod]);
     }
 
-    // 3) save product (create or update)
-  // 3) save product (create or update) - robust duplicate check + friendly errors
-if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
-    $code = isset($_POST['product_code']) ? trim($_POST['product_code']) : '';
-    $name = isset($_POST['name']) ? trim($_POST['name']) : '';
-    $unit = isset($_POST['unit_of_measure']) ? trim($_POST['unit_of_measure']) : '';
-    $cost = isset($_POST['cost_price']) ? (float)$_POST['cost_price'] : 0;
-    $sell = isset($_POST['selling_price']) ? (float)$_POST['selling_price'] : 0;
-    $reorder = isset($_POST['reorder_level']) ? (float)$_POST['reorder_level'] : 0;
-    $desc = isset($_POST['description']) ? trim($_POST['description']) : null;
+    // 3) save product (create or update) - robust duplicate check + friendly errors
+    if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+        $code = isset($_POST['product_code']) ? trim($_POST['product_code']) : '';
+        $name = isset($_POST['name']) ? trim($_POST['name']) : '';
+        $unit = isset($_POST['unit_of_measure']) ? trim($_POST['unit_of_measure']) : '';
+        $cost = isset($_POST['cost_price']) ? (float)$_POST['cost_price'] : 0;
+        $sell = isset($_POST['selling_price']) ? (float)$_POST['selling_price'] : 0;
+        $reorder = isset($_POST['reorder_level']) ? (float)$_POST['reorder_level'] : 0;
+        $desc = isset($_POST['description']) ? trim($_POST['description']) : null;
 
-    if ($code === '' || $name === '' || $unit === '') {
-        jsonOut(['ok'=>false,'error'=>'الرجاء إكمال الحقول المطلوبة: كود المنتج، الاسم، والوحدة.']);
+        if ($code === '' || $name === '' || $unit === '') {
+            jsonOut(['ok'=>false,'error'=>'الرجاء إكمال الحقول المطلوبة: كود المنتج، الاسم، والوحدة.']);
+        }
+
+        try {
+            // duplicate check
+            $dupStmt = $conn->prepare("SELECT id FROM products WHERE product_code = ? LIMIT 1");
+            if (!$dupStmt) throw new Exception($conn->error);
+            $dupStmt->bind_param('s', $code);
+            $dupStmt->execute();
+            $dres = $dupStmt->get_result();
+            $dup = $dres->fetch_assoc();
+            $dupStmt->close();
+
+            if ($dup && ($id === 0 || $dup['id'] != $id)) {
+                jsonOut(['ok'=>false,'error'=>'كود المنتج هذا مسجل بالفعل. الرجاء اختيار كود آخر أو تعديل المنتج الموجود.']);
+            }
+
+            if ($id > 0) {
+                $stmt = $conn->prepare("UPDATE products SET product_code=?, name=?, unit_of_measure=?, cost_price=?, selling_price=?, reorder_level=?, description=?, updated_at = NOW() WHERE id=?");
+                if (!$stmt) throw new Exception($conn->error);
+                $stmt->bind_param('sssdddsi', $code, $name, $unit, $cost, $sell, $reorder, $desc, $id);
+                // Note: bind types: s string, d double, i int. description may be null; mysqli will convert null to empty string unless using explicit handling.
+                // To allow NULL description, we can set to null explicitly:
+                if ($desc === '') $desc = null;
+                $stmt->execute();
+                if ($stmt->errno) {
+                    $err = $stmt->error;
+                    $stmt->close();
+                    throw new Exception($err);
+                }
+                $stmt->close();
+                jsonOut(['ok'=>true,'msg'=>'تم تعديل المنتج']);
+            } else {
+                $stmt = $conn->prepare("INSERT INTO products (product_code,name,unit_of_measure,current_stock,reorder_level,created_at,cost_price,selling_price,description) VALUES (?, ?, ?, 0, ?, NOW(), ?, ?, ?)");
+                if (!$stmt) throw new Exception($conn->error);
+                if ($desc === '') $desc = null;
+                $stmt->bind_param('sssddds', $code, $name, $unit, $reorder, $cost, $sell, $desc);
+                // Note: bind types need to align: here we used 'sssddds' expecting reorder (d), cost (d), sell (d), desc (s)
+                // But PHP's bind_param requires accurate type string length. To be safe, we'll do this:
+                $stmt->bind_param('sssddds', $code, $name, $unit, $reorder, $cost, $sell, $desc);
+                $stmt->execute();
+                if ($stmt->errno) {
+                    $err = $stmt->error;
+                    $stmt->close();
+                    throw new Exception($err);
+                }
+                $newId = $conn->insert_id;
+                $stmt->close();
+                jsonOut(['ok'=>true,'msg'=>'تم إضافة المنتج','id'=>$newId]);
+            }
+        } catch (Exception $e) {
+            // Detect duplicate key error via SQLSTATE is not directly available here; we check error messages/code
+            $em = $e->getMessage();
+            if (strpos($em, 'Duplicate') !== false || strpos($em, 'duplicate') !== false || strpos($em, 'Integrity constraint violation') !== false) {
+                jsonOut(['ok'=>false,'error'=>'كود المنتج مستخدم بالفعل (تعارض).']);
+            }
+            error_log("save_product mysqli error: " . $e->getMessage());
+            jsonOut(['ok'=>false,'error'=>'حدث خطأ أثناء حفظ المنتج. حاول مرة أخرى أو تواصل مع الدعم.']);
+        }
     }
-
-    try {
-        // فحص مبدئي إذا كان الكود موجوداً مسبقاً (لتقديم رسالة واضحة)
-        $dupStmt = $pdo->prepare("SELECT id FROM products WHERE product_code = ? LIMIT 1");
-        $dupStmt->execute([$code]);
-        $dup = $dupStmt->fetch();
-        if ($dup && ($id === 0 || $dup['id'] != $id)) {
-            jsonOut(['ok'=>false,'error'=>'كود المنتج هذا مسجل بالفعل. الرجاء اختيار كود آخر أو تعديل المنتج الموجود.']);
-        }
-
-        if ($id > 0) {
-            $stmt = $pdo->prepare("UPDATE products SET product_code=?, name=?, unit_of_measure=?, cost_price=?, selling_price=?, reorder_level=?, description=?, updated_at = NOW() WHERE id=?");
-            $stmt->execute([$code,$name,$unit,$cost,$sell,$reorder,$desc,$id]);
-            jsonOut(['ok'=>true,'msg'=>'تم تعديل المنتج']);
-        } else {
-            $stmt = $pdo->prepare("INSERT INTO products (product_code,name,unit_of_measure,current_stock,reorder_level,created_at,cost_price,selling_price,description) VALUES (?, ?, ?, 0, ?, NOW(), ?, ?, ?)");
-            $stmt->execute([$code,$name,$unit,$reorder,$cost,$sell,$desc]);
-            $newId = $pdo->lastInsertId();
-            jsonOut(['ok'=>true,'msg'=>'تم إضافة المنتج','id'=>$newId]);
-        }
-    } catch (PDOException $pdoEx) {
-        // التقاط تكرار إدخال في حال حدوث ريسس (race) أو أي قيد قاعدة بيانات
-        if ($pdoEx->getCode() === '23000') {
-            jsonOut(['ok'=>false,'error'=>'كود المنتج مستخدم بالفعل (تعارض).']);
-        }
-        error_log("save_product PDO error: " . $pdoEx->getMessage());
-        jsonOut(['ok'=>false,'error'=>'حدث خطأ أثناء حفظ المنتج. حاول مرة أخرى أو تواصل مع الدعم.']);
-    } catch (Exception $e) {
-        error_log("save_product error: " . $e->getMessage());
-        jsonOut(['ok'=>false,'error'=>'حدث خطأ أثناء حفظ المنتج.']);
-    }
-}
-
 
     // 4) delete product (AJAX POST) with checks
-    // 4) delete product (AJAX POST) with checks
-if ($action === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $pid = isset($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
-    if ($pid <= 0) jsonOut(['ok'=>false,'error'=>'معرف المنتج غير صالح.']);
+    if ($action === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $pid = isset($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
+        if ($pid <= 0) jsonOut(['ok'=>false,'error'=>'معرف المنتج غير صالح.']);
 
-    try {
-        // 1) فحص ارتباطات المنتج (دفعات أو بنود فواتير) -> قراءة فقط (آمن)
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM batches WHERE product_id = ?");
-        $stmt->execute([$pid]);
-        $cntB = (int)$stmt->fetchColumn();
+        try {
+            // 1) فحص ارتباطات المنتج (دفعات أو بنود فواتير) -> قراءة فقط (آمن)
+            $stmt = $conn->prepare("SELECT COUNT(*) FROM batches WHERE product_id = ?");
+            if (!$stmt) throw new Exception($conn->error);
+            $stmt->bind_param('i', $pid);
+            $stmt->execute();
+            $stmt->bind_result($cntB);
+            $stmt->fetch();
+            $stmt->close();
 
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM invoice_out_items WHERE product_id = ?");
-        $stmt->execute([$pid]);
-        $cntS = (int)$stmt->fetchColumn();
+            $stmt = $conn->prepare("SELECT COUNT(*) FROM invoice_out_items WHERE product_id = ?");
+            if (!$stmt) throw new Exception($conn->error);
+            $stmt->bind_param('i', $pid);
+            $stmt->execute();
+            $stmt->bind_result($cntS);
+            $stmt->fetch();
+            $stmt->close();
 
-        if ($cntB > 0 || $cntS > 0) {
-            jsonOut(['ok'=>false,'error'=>'لا يمكن حذف المنتج: مرتبط بفاتورة أو له دفعات مسجلة.']);
+            if ($cntB > 0 || $cntS > 0) {
+                jsonOut(['ok'=>false,'error'=>'لا يمكن حذف المنتج: مرتبط بفاتورة أو له دفعات مسجلة.']);
+            }
+
+            // 2) الآن الفحص الأمني للـ CSRF قبل أي عملية حذف (state-changing)
+            $token = isset($_POST['csrf_token']) ? $_POST['csrf_token'] : '';
+            if (!isset($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], (string)$token)) {
+                jsonOut(['ok'=>false,'error'=>'رمز التحقق (CSRF) غير صالح. أعد تحميل الصفحة وحاول مجدداً.']);
+            }
+
+            // 3) تنفيذ الحذف
+            $stmt = $conn->prepare("DELETE FROM products WHERE id = ?");
+            if (!$stmt) throw new Exception($conn->error);
+            $stmt->bind_param('i', $pid);
+            $stmt->execute();
+            if ($stmt->errno) {
+                $err = $stmt->error;
+                $stmt->close();
+                throw new Exception($err);
+            }
+            $stmt->close();
+
+            jsonOut(['ok'=>true,'msg'=>'تم حذف المنتج بنجاح']);
+        } catch (Exception $e) {
+            error_log("delete_product error: " . $e->getMessage());
+            jsonOut(['ok'=>false,'error'=>'حدث خطأ أثناء حذف المنتج.']);
         }
-
-        // 2) الآن الفحص الأمني للـ CSRF قبل أي عملية حذف (state-changing)
-        $token = isset($_POST['csrf_token']) ? $_POST['csrf_token'] : '';
-        if (!isset($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], (string)$token)) {
-            jsonOut(['ok'=>false,'error'=>'رمز التحقق (CSRF) غير صالح. أعد تحميل الصفحة وحاول مجدداً.']);
-        }
-
-        // 3) تنفيذ الحذف
-        $stmt = $pdo->prepare("DELETE FROM products WHERE id = ?");
-        $stmt->execute([$pid]);
-        jsonOut(['ok'=>true,'msg'=>'تم حذف المنتج بنجاح']);
-    } catch (Exception $e) {
-        error_log("delete_product error: " . $e->getMessage());
-        jsonOut(['ok'=>false,'error'=>'حدث خطأ أثناء حذف المنتج.']);
     }
-}
-
 
     // default
     jsonOut(['ok'=>false,'error'=>'action غير معروف']);
@@ -209,7 +270,6 @@ if ($action === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
    =========================== */
 require_once BASE_DIR . 'partials/header.php';
 require_once BASE_DIR . 'partials/sidebar.php';
-
 
 ?>
 
