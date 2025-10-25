@@ -279,14 +279,6 @@ require_once BASE_DIR . 'partials/sidebar.php';
   /* ============================
      Scoped styles for manage-products
      ============================ */
-  #mp-manage-products { --primary:#0b84ff; --accent:#7c3aed; --teal:#10b981; --amber:#f59e0b; --rose:#ef4444;
-    --bg:#f6f8fc; --surface:#fff; --surface-2:#f9fbff; --text:#0b1220; --muted:#6b7280; --border:rgba(2,6,23,0.06);
-    --radius:12px; --shadow:0 14px 30px rgba(2,6,23,0.06); --header-h:72px;
-    font-family:Inter, 'Noto Naskh Arabic', Tahoma, Arial;
-  }
-  [data-app][data-theme="dark"] #mp-manage-products {
-    --bg:#0b1220; --surface:#0f1626; --surface-2:#071224; --text:#e6eef8; --muted:#94a3b8; --border:rgba(148,163,184,0.12);
-  }
 
   #mp-manage-products * { box-sizing:border-box; }
   #mp-manage-products html, #mp-manage-products body { height:100%; }
@@ -307,10 +299,10 @@ require_once BASE_DIR . 'partials/sidebar.php';
   #mp-manage-products .stat{padding:10px;border-radius:10px;background:linear-gradient(180deg,rgba(11,132,255,0.05),rgba(124,58,237,0.03));min-width:170px}
   #mp-manage-products .stat .lbl{font-size:12px;color:var(--muted)}
   #mp-manage-products .stat .val{font-size:16px;font-weight:800;margin-top:6px}
-  #mp-manage-products .table-scroller{overflow:auto;flex:1}
+  /* #mp-manage-products .table-scroller{overflow:auto;flex:1} */
   /* keep using .my-table(bootstrap) but scope header/td styles so we don't override global .my-table*/
-  #mp-manage-products table.my-table{width:100%;border-collapse:collapse;min-width:1000px}
-  #mp-manage-products table.my-table th, #mp-manage-products table.my-table td {
+  /* #mp-manage-products table.my-table{width:100%;border-collapse:collapse;min-width:1000px} */
+  /* #mp-manage-products table.my-table th, #mp-manage-products table.my-table td {
     padding:12px;
     text-align:center;
     border-bottom:1px solid var(--border);
@@ -321,9 +313,9 @@ require_once BASE_DIR . 'partials/sidebar.php';
   }
   #mp-manage-products table.my-table td {
     border-bottom: 1px solid var(--border);
-  }
-  #mp-manage-products table.my-table th, #mp-manage-products table.my-tabletd{padding:12px;text-align:center;border-bottom:1px solid var(--border);vertical-align:middle}
-  #mp-manage-products table.my-table th{position:sticky;top:0;background:var(--surface);z-index:4;color:var(--muted);font-weight:800}
+  } */
+  /* #mp-manage-products table.my-table th, #mp-manage-products table.my-tabletd{padding:12px;text-align:center;border-bottom:1px solid var(--border);vertical-align:middle} */
+  /* #mp-manage-products table.my-table th{position:sticky;top:0;background:var(--surface);z-index:4;color:var(--muted);font-weight:800} */
   
   #mp-manage-products .name-col{text-align:right;font-weight:700}
   #mp-manage-products .badge{padding:6px 10px;border-radius:999px;font-weight:700}
@@ -332,7 +324,7 @@ require_once BASE_DIR . 'partials/sidebar.php';
   #mp-manage-products .badge.red{background:rgba(239,68,68,0.08);color:var(--rose)}
   #mp-manage-products .badge-muted{background:rgba(148,163,184,0.08);color:var(--muted)}
   #mp-manage-products .small{font-size:13px;color:var(--muted)}
-  #mp-manage-products .actions{display:flex;row-gap:6px;justify-content:center;align-items: center;height:97px ;}
+  #mp-manage-products .actions{display:flex;gap:6px;justify-content:center;align-items: center;min-height: 100px;}
   #mp-manage-products .warn-low{background:rgba(255,80,80,0.08);color:var(--rose);padding:6px;border-radius:8px;font-weight:700}
 
   /* renamed modal to mp-modal to avoid conflicts with bootstrap .modal */
@@ -387,10 +379,10 @@ require_once BASE_DIR . 'partials/sidebar.php';
           <div class="small">القيم أعلاه تحسب من الدفعات التي حالتها <strong>فعال</strong> فقط.</div>
         </div>
 
-        <div class="table-wrap">
-          <div class="table-scroller" id="tableScroller">
-            <table class="my-table" id="productsTable" role="table" aria-label="Products table">
-              <thead >
+        <div class="table-wrap ">
+          <div class="custom-table-wrapper" id="tableScroller">
+            <table class="custom-table " id="productsTable" role="table" aria-label="Products table">
+              <thead  class="center">
                 <tr>
                   <th>#</th>
                   <th>كود</th>
@@ -781,7 +773,7 @@ function renderBatchesTable(filter){
   let rows = Array.isArray(batchesCache) ? batchesCache.slice() : [];
   if (filter && filter !== 'all') rows = rows.filter(r=> r.status === filter);
   if (!rows.length) { wrap.innerHTML = '<div class="small">لا توجد دفعات.</div>'; return; }
-  let html = `<table class="my-table mb-1" style="width:100%;border-collapse:collapse"><thead><tr style="color:var(--muted)"><th>رقم الدفعة</th><th>المنتج</th><th>التاريخ</th><th>الكمية</th><th>المتبقي</th><th>سعر الشراء</th><th>سعر البيع</th><th>رقم الفاتورة المرتبطة</th><th>ملاحظات</th><th>سبب الإلغاء</th><th>سبب الإرجاع</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody>`;
+  let html = `<table class="custom-table mb-1" ><thead class="center"><tr style="color:var(--muted)"><th>رقم الدفعة</th><th>المنتج</th><th>التاريخ</th><th>الكمية</th><th>المتبقي</th><th>سعر الشراء</th><th>سعر البيع</th><th>رقم الفاتورة المرتبطة</th><th>ملاحظات</th><th>سبب الإلغاء</th><th>سبب الإرجاع</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody>`;
   rows.forEach(b => {
     const stMap = { 'active':'فعال', 'consumed':'مستهلك', 'reverted':'مرجع', 'cancelled':'ملغى' };
     const stText = stMap[b.status] || b.status || '-';

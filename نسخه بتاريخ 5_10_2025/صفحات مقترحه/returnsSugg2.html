@@ -1,0 +1,399 @@
+<!Doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>الفواتير المستلمة — مع إدارة المرتجعات (مرتجع كامل)</title>
+  <style>
+    :root{--bg:#f6f7fb;--card:#fff;--accent:#0ea5a4;--warning:#f59e0b;--danger:#ef4444;--muted:#6b7280;--border:#e6e9ef}
+    *{box-sizing:border-box}
+    body{font-family:Inter, 'Segoe UI', Tahoma, Arial; background:var(--bg); margin:0; color:#0f172a;}
+    .container{max-width:1150px;margin:28px auto;padding:18px}
+    .topbar{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    h1{font-size:20px;margin:0}
+    .muted{color:var(--muted);font-size:13px}
+
+    /* controls */
+    .controls{display:flex;gap:8px}
+    .btn{padding:8px 12px;border-radius:8px;border:0;cursor:pointer;font-weight:600}
+    .btn-outline{background:#fff;border:1px solid var(--border)}
+    .btn-primary{background:var(--accent);color:#fff}
+    .btn-warning{background:var(--warning);color:#fff}
+    .btn-danger{background:var(--danger);color:#fff}
+
+    /* card */
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;margin-top:14px}
+
+    /* table */
+    .table{width:100%;border-collapse:collapse;margin:0}
+    .table th,.table td{padding:10px;border-bottom:1px solid #f1f5f9;text-align:right}
+    .table thead th{background:#f8fafc;font-weight:700;color:var(--muted);text-align:center}
+    .product-cell{text-align:right}
+    .actions-cell{text-align:center}
+    .small{font-size:13px;color:var(--muted)}
+
+    /* returns badge */
+    .badge{display:inline-block;padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:700}
+    .badge-returns{background:linear-gradient(90deg,#e0f2fe,#bae6fd);color:#0369a1}
+
+    /* totals */
+    .totals{display:flex;justify-content:flex-end;margin-top:12px;gap:12px}
+    .totals .tile{background:#fff;padding:10px;border-radius:10px;border:1px solid var(--border);min-width:220px;text-align:right}
+
+    /* modal */
+    .modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,0.55);display:none;align-items:center;justify-content:center;z-index:80}
+    .modal{background:#fff;width:920px;max-width:96%;border-radius:12px;padding:16px;max-height:86vh;overflow:auto}
+    .modal h3{margin:0 0 8px 0}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .form-grid.full{grid-template-columns:1fr}
+    input[type=number], input[type=text], textarea, select{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px}
+
+    /* responsive */
+    @media (max-width:880px){
+      .form-grid{grid-template-columns:1fr}
+      .table thead th{display:none}
+      .table td{display:block;padding:8px}
+      .table tr{margin-bottom:8px;border-bottom:1px dashed #eee}
+      .totals{flex-direction:column;align-items:flex-end}
+    }
+
+    /* tiny helpers */
+    .text-left{text-align:left}
+    .muted-ss{color:var(--muted);font-size:12px}
+    .no-print{display:inline-block}
+    @media print{.no-print{display:none!important}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1>الفواتير المستلمة</h1>
+        <div class="muted">صفحة الفواتير التي تم تسليمها — الآن مع سجل المرتجعات وإمكانية إنشاء مرتجع كامل أو جزئي</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn btn-outline" id="backBtn">عودة</button>
+        <button class="btn btn-warning" id="showPendingBtn">عرض غير المسلّمة</button>
+      </div>
+    </div>
+
+    <!-- search/filter card (same idea as existing) -->
+    <div class="card" id="filtersCard">
+      <form id="filtersForm" onsubmit="return false;">
+        <div class="form-grid">
+          <div>
+            <label class="small">بحث برقم الفاتورة</label>
+            <input type="text" id="q_invoice" placeholder="مثال: 123 أو #123">
+          </div>
+          <div>
+            <label class="small">بحث برقم الهاتف</label>
+            <input type="text" id="q_mobile" placeholder="مثال: 011xxxxxxxx">
+          </div>
+          <div>
+            <label class="small">فلتر حسب العميل (ID)</label>
+            <input type="number" id="customer_id" placeholder="رقم العميل">
+          </div>
+          <div style="display:flex;gap:8px;align-items:end">
+            <button class="btn btn-primary" id="searchBtn">بحث / تصفية</button>
+            <button class="btn btn-outline" id="clearBtn">مسح</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- table card -->
+    <div class="card" style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-weight:700">قائمة الفواتير المسلّمة</div>
+        <div class="muted">يمكنك فتح تفاصيل الفاتورة وإنشاء مرتجع كامل بضغطة واحدة أو فتح واجهة المرتجعات الجزئية</div>
+      </div>
+
+      <div style="overflow:auto">
+        <table class="table" id="invoicesTable">
+          <thead>
+            <tr>
+              <th>رقم الفاتورة</th>
+              <th>العميل</th>
+              <th>الموبايل</th>
+              <th>المجموعة</th>
+              <th class="d-none d-md-table-cell">المسلم</th>
+              <th class="d-none d-md-table-cell">تاريخ التسليم</th>
+              <th>الإجمالي</th>
+              <th>مرتجعات</th>
+              <th class="actions-cell">إجراءات</th>
+            </tr>
+          </thead>
+          <tbody id="invoicesTbody">
+            <!-- injected by JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="totals">
+        <div class="tile"><div class="muted-ss">إجمالي النتائج</div><div id="totalShown" style="font-weight:800">0.00 ج.م</div></div>
+        <div class="tile"><div class="muted-ss">الإجمالي الكلي للفواتير المسلّمة</div><div id="grandTotal" style="font-weight:800">0.00 ج.م</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Invoice Details + Returns Modal -->
+  <div id="detailModal" class="modal-backdrop" role="dialog" aria-hidden="true">
+    <div class="modal" role="document" aria-modal="true">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3>تفاصيل الفاتورة — <span id="detailInvoiceId">#0</span></h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div id="detailTotal" style="font-weight:800"></div>
+          <button class="btn btn-outline" id="printDetail">طباعة</button>
+          <button class="btn btn-outline" id="closeDetail">إغلاق</button>
+        </div>
+      </div>
+
+      <div id="detailContent" style="margin-top:12px">
+        <!-- invoice info + items + returns history injected here -->
+      </div>
+
+      <hr>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-outline" id="openReturnFromDetail">إنشاء مرتجع جزئي</button>
+        <button class="btn btn-danger" id="openFullReturnFromDetail">مرتجع كامل</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Return Modal -->
+  <div id="returnModal" class="modal-backdrop" role="dialog" aria-hidden="true">
+    <div class="modal" role="document" aria-modal="true">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3>إنشاء مرتجع للفاتورة <span id="returnInvoiceLabel">#0</span></h3>
+        <button class="btn btn-outline" id="closeReturn">إغلاق</button>
+      </div>
+
+      <form id="createReturnForm" style="margin-top:12px">
+        <input type="hidden" name="invoice_id" id="returnInvoiceId" value="0">
+        <div style="margin-top:8px;">
+          <table class="table" id="returnItemsTable">
+            <thead><tr><th>#</th><th>المنتج</th><th>المباع</th><th>مرجوع سابقًا</th><th>كمية للمرتجع</th><th>سعر الوحدة</th></tr></thead>
+            <tbody id="returnItemsTbody"></tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:12px;display:flex;gap:8px;align-items:center;justify-content:space-between">
+          <div style="flex:1">
+            <label class="small">طريقة الاسترداد</label>
+            <select name="refund_method" id="refund_method"><option value="cash">نقدي</option><option value="credit">رصيد</option><option value="exchange">استبدال</option></select>
+          </div>
+          <div style="flex:1">
+            <label class="small">ملاحظة</label>
+            <input type="text" name="note" id="returnNote" placeholder="ملاحظات اختيارية">
+          </div>
+          <div style="min-width:200px;text-align:right">
+            <div class="muted-ss">إجمالي المرتجع</div>
+            <div id="returnPreviewTotal" style="font-weight:800">0.00</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;text-align:left">
+          <button type="button" class="btn btn-outline" id="cancelCreateReturn">إلغاء</button>
+          <button type="button" class="btn btn-secondary" id="fillFullReturn">ملء كميات المرتجع كاملة</button>
+          <button type="submit" class="btn btn-primary" id="submitCreateReturn">تأكيد وإنشاء المرتجع</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toastHolder" style="position:fixed;right:20px;bottom:20px;z-index:20000"></div>
+
+  <script>
+    // Demo data (replace with server data or AJAX calls)
+    const demoInvoices = [
+      {id:101, customer_name:'أحمد حسن', mobile:'01110001111', invoice_group:'G1', delivered_by:'محمود', delivery_date:'2025-10-01 12:10', total:1250.00, returns:2},
+      {id:102, customer_name:'سارة محمود', mobile:'01022223333', invoice_group:'G1', delivered_by:'أحمد', delivery_date:'2025-10-02 09:30', total:250.75, returns:0},
+      {id:103, customer_name:'شركة النور', mobile:'020334455', invoice_group:'B2', delivered_by:'ليلى', delivery_date:'2025-09-28 16:10', total:5120.00, returns:1}
+    ];
+
+    const demoInvoiceItems = {
+      101: [ {id:1, product_name:'قلم أسود', product_code:'P-101', qty:10, returned_qty:2, unit_price:2.5, total_price:25}, {id:2, product_name:'دفتر A4', product_code:'P-202', qty:5, returned_qty:0, unit_price:10, total_price:50} ],
+      102: [ {id:3, product_name:'مسطرة', product_code:'P-303', qty:2, returned_qty:0, unit_price:5, total_price:10} ],
+      103: [ {id:4, product_name:'حاسوب محمول', product_code:'P-900', qty:1, returned_qty:0, unit_price:5000, total_price:5000} ]
+    };
+
+    // helpers
+    const money = v => Number(v).toFixed(2) + ' ج.م';
+    const toast = (msg, type='info') => { const d=document.createElement('div'); d.className='card'; d.style.padding='10px 14px'; d.style.marginTop='8px'; d.style.borderRadius='8px'; d.style.color='#fff'; d.style.background=(type==='error'?'#ef4444':type==='success'?'#059669':'#111827'); d.innerText=msg; document.getElementById('toastHolder').appendChild(d); setTimeout(()=> d.remove(),3000); };
+
+    // render invoices table
+    const invoicesTbody = document.getElementById('invoicesTbody');
+    function renderInvoices(list){ invoicesTbody.innerHTML=''; let sum=0; let grand=0; list.forEach(inv=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML = `<td>#${inv.id}</td>
+                        <td class="product-cell">${inv.customer_name}</td>
+                        <td>${inv.mobile}</td>
+                        <td><span class="badge">${inv.invoice_group}</span></td>
+                        <td class="d-none d-md-table-cell">${inv.delivered_by || ''}</td>
+                        <td class="d-none d-md-table-cell">${inv.delivery_date}</td>
+                        <td style="text-align:right;font-weight:800">${money(inv.total)}</td>
+                        <td style="text-align:center"><span class="badge badge-returns">${inv.returns}</span></td>
+                        <td class="actions-cell">
+                          <button class="btn btn-outline" data-id="${inv.id}" onclick="openDetail(${inv.id})">عرض</button>
+                          <button class="btn btn-primary" style="margin-inline-start:6px" onclick="openReturn(${inv.id})">مرتجع</button>
+                          <button class="btn btn-danger" style="margin-inline-start:6px" onclick="confirmFullReturn(${inv.id})">مرتجع كامل</button>
+                        </td>`;
+        invoicesTbody.appendChild(tr);
+        sum += inv.total; grand += inv.total;
+    }); document.getElementById('totalShown').innerText=money(sum); document.getElementById('grandTotal').innerText=money(grand);
+    }
+
+    renderInvoices(demoInvoices);
+
+    // open detail modal
+    const detailModal = document.getElementById('detailModal');
+    const detailContent = document.getElementById('detailContent');
+    const detailInvoiceId = document.getElementById('detailInvoiceId');
+    const detailTotal = document.getElementById('detailTotal');
+    const closeDetail = document.getElementById('closeDetail');
+    const openReturnFromDetailBtn = document.getElementById('openReturnFromDetail');
+    const openFullReturnFromDetailBtn = document.getElementById('openFullReturnFromDetail');
+
+    window.openDetail = function(id){
+      const inv = demoInvoices.find(x=>x.id===id);
+      if(!inv){ toast('الفاتورة غير موجودة','error'); return; }
+      detailInvoiceId.textContent = '#' + inv.id; detailTotal.textContent = 'الإجمالي: ' + money(inv.total);
+      // build content: info + items + returns history (demo)
+      let html = `<div style="display:flex;gap:12px;flex-wrap:wrap"><div style="flex:1"><strong>العميل:</strong> ${inv.customer_name}<br><strong>هاتف:</strong> ${inv.mobile}</div><div style="min-width:220px;text-align:left"><strong>المجموعة:</strong> ${inv.invoice_group}<br><strong>المسلم:</strong> ${inv.delivered_by}</div></div>`;
+      html += '<hr>';
+      const items = demoInvoiceItems[id] || [];
+      html += '<table style="width:100%;border-collapse:collapse"><thead><tr><th>#</th><th style="text-align:right">المنتج</th><th style="text-align:center">الكمية</th><th style="text-align:right">سعر الوحدة</th><th style="text-align:right">الإجمالي</th></tr></thead><tbody>';
+      let t=0; items.forEach((it,idx)=>{ html += `<tr><td>${idx+1}</td><td style="text-align:right">${it.product_name} — ${it.product_code}</td><td style="text-align:center">${it.qty} (${it.returned_qty} مرجوع)</td><td style="text-align:right">${money(it.unit_price)}</td><td style="text-align:right;font-weight:800">${money(it.total_price)}</td></tr>`; t+=it.total_price; });
+      html += `</tbody><tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">الإجمالي</td><td style="text-align:right;font-weight:900">${money(t)}</td></tr></tfoot></table>`;
+
+      // returns history demo (would be fetched from server)
+      html += '<hr><div><strong>سجل المرتجعات</strong><div class="muted" style="margin-top:8px">(عرض سريع للتاريخ — استبدل بالبيانات الحقيقية)</div><ul style="margin-top:8px"><li>مرتجع #501 — 2025-10-03 — 2 قطعة — استرداد نقدي 50 ج.م</li></ul></div>';
+
+      detailContent.innerHTML = html;
+      detailModal.style.display = 'flex'; detailModal.setAttribute('aria-hidden','false');
+
+      // attach open return flow
+      openReturnFromDetailBtn.onclick = function(){ detailModal.style.display='none'; openReturn(id); };
+      openFullReturnFromDetailBtn.onclick = function(){ detailModal.style.display='none'; confirmFullReturn(id); };
+    }
+
+    closeDetail.addEventListener('click', ()=> detailModal.style.display='none');
+
+    // open return modal
+    const returnModal = document.getElementById('returnModal');
+    const returnInvoiceLabel = document.getElementById('returnInvoiceLabel');
+    const returnInvoiceId = document.getElementById('returnInvoiceId');
+    const returnItemsTbody = document.getElementById('returnItemsTbody');
+    const returnPreviewTotal = document.getElementById('returnPreviewTotal');
+    const createReturnForm = document.getElementById('createReturnForm');
+    const closeReturn = document.getElementById('closeReturn');
+    const cancelCreateReturn = document.getElementById('cancelCreateReturn');
+    const fillFullReturnBtn = document.getElementById('fillFullReturn');
+
+    window.openReturn = function(invId){
+      const inv = demoInvoices.find(x=>x.id===invId);
+      if(!inv){ toast('الفاتورة غير موجودة','error'); return; }
+      returnInvoiceLabel.textContent = '#' + inv.id; returnInvoiceId.value = inv.id;
+      // populate items
+      const items = demoInvoiceItems[invId] || [];
+      returnItemsTbody.innerHTML = '';
+      items.forEach((it,idx)=>{
+        const max = (it.qty - (it.returned_qty||0));
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${idx+1}</td><td style="text-align:right">${it.product_name}</td><td style="text-align:center">${it.qty}</td><td style="text-align:center">${it.returned_qty}</td>
+                        <td><input name="qty[${it.id}]" type="number" step="0.0001" min="0" max="${max}" value="0" class="r-qty" style="width:120px"></td>
+                        <td><input name="unit_price[${it.id}]" type="number" step="0.01" min="0" value="${it.unit_price}" class="r-price" style="width:120px"></td>`;
+        returnItemsTbody.appendChild(tr);
+      });
+      // listeners
+      returnModal.style.display='flex';
+      document.querySelectorAll('.r-qty, .r-price').forEach(el=>el.addEventListener('input', recalcReturnTotal));
+      recalcReturnTotal();
+    }
+
+    // fill full quantities for current return modal
+    function fillFullReturnQuantities(){
+      document.querySelectorAll('#returnItemsTbody tr').forEach(row=>{
+        const qtyInput = row.querySelector('input[name^="qty"]');
+        const max = parseFloat(qtyInput.getAttribute('max')||0);
+        qtyInput.value = max > 0 ? max : 0;
+      });
+      recalcReturnTotal();
+    }
+
+    // Confirm then run a full return automatically (calls server demo)
+    async function confirmFullReturn(invId){
+      if (!confirm('هل ترغب بتنفيذ مرتجع كامل لهذه الفاتورة؟(سيتم وضع كميات المرتجع مساوية للكمية المبيعة لكل بند)')) return;
+      // open modal, fill quantities and auto-submit
+      openReturn(invId);
+      // wait a tick for modal to render inputs
+      setTimeout(()=>{
+        fillFullReturnQuantities();
+        // set default refund method (can be customized)
+        document.getElementById('refund_method').value = 'cash';
+        // auto-submit after short delay to allow user to cancel
+        setTimeout(()=>{
+          // simulate click on submit
+          document.getElementById('submitCreateReturn').click();
+        }, 600);
+      }, 80);
+    }
+
+    function recalcReturnTotal(){
+      let tot=0; document.querySelectorAll('#returnItemsTbody tr').forEach(row=>{
+        const q = parseFloat(row.querySelector('input[name^="qty"]').value||0);
+        const p = parseFloat(row.querySelector('input[name^="unit_price"]').value||0);
+        tot += q*p;
+      }); returnPreviewTotal.textContent = money(tot);
+    }
+
+    // submit return
+    createReturnForm.addEventListener('submit', async function(e){
+      e.preventDefault();
+      // collect payload
+      const fd = new FormData(this);
+      // minimal validation: at least one qty>0
+      let ok=false; for (const pair of fd.entries()){ if(pair[0].startsWith('qty[') && parseFloat(pair[1])>0) { ok=true; break; } }
+      if(!ok){ toast('أدخل كمية مرتجعة واحدة على الأقل','error'); return; }
+
+      const submitBtn = document.getElementById('submitCreateReturn'); submitBtn.disabled=true; submitBtn.textContent='جاري...';
+      try{
+        // demo: replace with actual fetch to returns_action.php
+        await new Promise(r=>setTimeout(r,800));
+        toast('تم إنشاء المرتجع بنجاح','success');
+        returnModal.style.display='none';
+        // update demo data returned_qty and returns count
+        const invId = parseInt(returnInvoiceId.value,10);
+        const items = demoInvoiceItems[invId]||[];
+        let addedTotal=0; let addedCount=0;
+        document.querySelectorAll('#returnItemsTbody tr').forEach((row,idx)=>{
+          const q = parseFloat(row.querySelector('input[name^="qty"]').value||0);
+          const p = parseFloat(row.querySelector('input[name^="unit_price"]').value||0);
+          if(q>0){ items[idx].returned_qty = (items[idx].returned_qty||0) + q; addedTotal += q*p; addedCount += 1; }
+        });
+        // update invoice returns badge
+        const inv = demoInvoices.find(x=>x.id===invId);
+        if(inv){ inv.returns = (inv.returns||0) + (addedCount>0?1:0); }
+        renderInvoices(demoInvoices);
+      }catch(err){ toast('فشل إنشاء المرتجع','error'); }
+      finally{ submitBtn.disabled=false; submitBtn.textContent='تأكيد وإنشاء المرتجع'; }
+    });
+
+    // fill full return button
+    fillFullReturnBtn.addEventListener('click', fillFullReturnQuantities);
+    cancelCreateReturn.addEventListener('click', ()=> returnModal.style.display='none');
+    closeReturn.addEventListener('click', ()=> returnModal.style.display='none');
+
+    // small controls
+    document.getElementById('searchBtn').addEventListener('click', ()=>{ toast('ميزة البحث تعمل كـ demo — ربط بـ server مطلوب','info'); });
+    document.getElementById('clearBtn').addEventListener('click', ()=>{ document.getElementById('q_invoice').value=''; document.getElementById('q_mobile').value=''; document.getElementById('customer_id').value=''; renderInvoices(demoInvoices); });
+    document.getElementById('backBtn').addEventListener('click', ()=> history.back());
+    document.getElementById('showPendingBtn').addEventListener('click', ()=> toast('فتح الفواتير غير المستلمة — demo','info'));
+
+    // print detail
+    document.getElementById('printDetail').addEventListener('click', ()=>{ window.print(); });
+  </script>
+</body>
+</html>

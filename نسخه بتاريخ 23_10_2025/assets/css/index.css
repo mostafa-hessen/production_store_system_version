@@ -44,6 +44,8 @@
   --grad-3: linear-gradient(135deg, #f59e0b, #ef4444);
   --grad-4: linear-gradient(135deg, #ef4444, #b91c1c);
   
+
+   /* لون الشريط الجانبي عند التحديد */
 }
 
 /* Dark Mode Tokens */
@@ -58,7 +60,25 @@
   --shadow-1: 0 12px 30px rgba(0,0,0,0.45);
   --shadow-2: 0 18px 40px rgba(11,132,255,0.22);
   --ring: 0 0 0 4px rgba(11,132,255,0.24);
+    --accent-left: #7c3aed;      /* purple (kept a bit more vivid for dark) */
+  --accent-left-weak: rgba(124,58,237,0.06);
+
+  --accent-right: #b9770e;     /* warm amber muted */
+  --accent-right-weak: rgba(185,119,14,0.06);
+
+  --row-bg-odd-1: #0f1724;     /* deep cool */
+  --row-bg-odd-2: #0b1220;
+  --row-bg-even-1: #0b1220;
+  --row-bg-even-2: #05070d;
+
+  --row-border-strong: rgba(148,163,184,0.08);
+  --row-border-soft: rgba(148,163,184,0.04);
+  --row-shadow: 0 8px 26px rgba(2,6,23,0.55);
+  --row-hover-tint: rgba(124,58,237,0.06);
+
+  --row-radius: 10px;
 }
+
 
 /* Respect OS preference on first load if no explicit theme set */
 @media (prefers-color-scheme: dark) {
@@ -361,23 +381,23 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   padding: 0px 0px;
   position: relative;         /* for any positioned children */
 }
-
-/* make it work even لو لم تغير HTML (targets bootstrap .table too) */
 .custom-table,
 .table.customized,
 .table.custom-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Naskh Arabic";
   font-size: 0.95rem;
   color: var(--text);
   direction: inherit; /* يحترم dir من الصفحة (rtl أو ltr) */
+  border-spacing: 0px 12px; /* فاصلة بين الصفوف بشكل بطاقات */
+
 }
 
 /* header - sticky inside the scrollable wrapper */
 .custom-table thead th,
 .table.customized thead th {
-  position: sticky;
+  position: sticky !important;
   top: 0; /* إذا عندك هيدر ثابت، JS سيعدّل --header-h */
   z-index: 6;
   background: linear-gradient(180deg, var(--surface-2), var(--surface-2));
@@ -389,6 +409,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   backdrop-filter: blur(6px); /* ناعم خلف الترويسة */
   -webkit-backdrop-filter: blur(6px);
   box-shadow: inset 0 -1px 0 rgba(0,0,0,0.03);
+  border-radius: 10px;
+
 }
 
 /* adjust top if the page has a fixed header */
@@ -403,25 +425,160 @@ body.has-fixed-header .table.customized thead th {
   border-bottom: 1px dashed rgba(0,0,0,0.04);
   vertical-align: middle;
   font-size: 0.95rem;
-
 }
 
-/* Alternate row background for better visual distinction */
-.custom-table tbody tr:nth-child(odd),
-.table.customized tbody tr:nth-child(odd) {
-  background: var(--surface-2) !important ;
+
+
+/*  start rows */
+/* ---------- Refined table: fixed thead, no scale, smoother colors + right glow ---------- */
+
+/* ---------- header (fixed) ---------- */
+.custom-table thead {
+  display: table-header-group; /* ensure thead not broken */
+  vertical-align: middle;
 }
 
-.custom-table tbody tr:nth-child(even),
-.table.customized tbody tr:nth-child(even) {
-  background: var(--surface) !important;
-}
+/* .custom-table thead th {
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-weight: 600;
+  padding: 12px 16px;
+  text-align: left;
+  border: none;
+  box-shadow: var(--shadow-1);
+  border-radius: 10px;
+  position: relative;
+  z-index: 3; /* above rows' glow */
+/* }  */
 
-/* Add a subtle separator between rows */
+/* make header corners rounded when table has spacing */
+.custom-table thead th:first-child  { border-top-left-radius: 12px; }
+.custom-table thead th:last-child   { border-top-right-radius: 12px; }
+
+
 .custom-table tbody tr {
-  border-bottom: 2px solid var(--border);
+  position: relative;              /* for ::before glow */
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-1);
+  /* overflow: visible; */
+  transition: box-shadow 280ms var(--normal), filter 220ms var(--fast);
+  z-index: 1;
 
+  overflow: hidden; /* يمنع ::before من الخروج والظهور فوق الهيدر */
 }
+
+
+
+/* ensure cells are above the glow layer */
+.custom-table tbody tr > * { position: relative; z-index: 2; }
+
+/* Odd rows — smooth cool tint */
+.custom-table tbody tr:nth-child(odd) {
+  background: linear-gradient(90deg,
+    rgba(11,132,255,0.04) 0%,
+    rgba(124,58,237,0.02) 100%) !important;
+  border-left: 5px solid rgba(11,132,255,0.45); 
+  border-right: 4px solid transparent;
+}
+
+/* Even rows — smooth warm tint */
+.custom-table tbody tr:nth-child(even) {
+  background: linear-gradient(90deg,
+    rgba(245,158,11,0.04) 0%,
+    rgba(16,185,129,0.02) 100%) !important;
+  border-right: 5px solid rgba(245,158,11,0.55);
+  border-left: 4px solid transparent;
+}
+
+
+/* ---------- Hover: no scale, clear distinct glow from right ---------- */
+.custom-table tbody tr::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(99,102,241,0.25) 0%, rgba(236,72,153,0.25) 100%);
+  box-shadow: 0 0 25px rgba(99,102,241,0.25);
+  opacity: 0;
+  transition: all 0.5s ease;
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+  filter: blur(4px);
+}
+
+/* عند المرور hover */
+.custom-table tbody tr:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(90deg, #eef2ff 0%, #ede9fe 100%);
+  box-shadow: 0 2px 12px rgba(99,102,241,0.15);
+}
+
+/* لمعة ناعمة تتحرك */
+.custom-table tbody tr:hover::after {
+  width: 35%;
+  opacity: 1;
+  filter: blur(8px) brightness(1.2);
+}
+
+
+
+/* make accents stronger on hover to be very clear */
+.custom-table tbody tr:hover:nth-child(odd) {
+  border-left-color: var(--primary-600);
+  border-right-color: rgba(124,58,237,0.28);
+}
+
+.custom-table tbody tr:hover:nth-child(even) {
+  border-right-color: var(--amber);
+  border-left-color: rgba(16,185,129,0.06);
+}
+
+/* ---------- cells ---------- */
+.custom-table td {
+  padding: 14px 18px;
+  vertical-align: middle;
+  color: var(--text);
+  background: transparent;
+}
+
+/* important cell */
+.custom-table td.is-important {
+  background: linear-gradient(90deg, rgba(11,132,255,0.06), rgba(124,58,237,0.04));
+  color: var(--primary-700);
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+/* badges */
+.custom-table .badge {
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  box-shadow: var(--shadow-2);
+}
+
+/* ---------- accessibility / keyboard focus ---------- */
+.custom-table tbody tr:focus-within {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(11,132,255,0.10);
+}
+
+/* ---------- responsive tweak: keep header but make rows stack on very small screens ---------- */
+@media (max-width: 600px) {
+  .custom-table { border-spacing: 0 10px; }
+  .custom-table thead th { font-size: 13px; padding: 10px; }
+  .custom-table td { padding: 10px; font-size: 14px; }
+}
+
+/*  end rows */
+
 
 /* Align center utility (keeps compatibility مع bootstrap text-center) */
 .custom-table th.center,
@@ -434,14 +591,6 @@ body.has-fixed-header .table.customized thead th {
 
 
 
-/* notes column: truncate long text with ellipsis */
-/* .notes-cell {
-  max-width: 240px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--muted);
-} */
 
 /* small screens: compress padding and font */
 @media (max-width: 768px) {
@@ -470,11 +619,62 @@ body.has-fixed-header .table.customized thead th {
 /* optional: make the table responsive by allowing horizontal scroll inside wrapper */
 .custom-table-wrapper::-webkit-scrollbar { height: 10px; width: 10px; }
 .custom-table-wrapper::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 8px; }
+/* === LIGHT MODE === */
 
-th{
-  cursor: pointer;
-
+/* === LIGHT MODE === */
+[data-app][data-theme="light"] .custom-table tbody tr:nth-child(odd) {
+  background: linear-gradient(90deg, #f8faff 0%, #edf0ff 100%) !important;
+  border-left: 4px solid #5b7fff;
+  box-shadow: inset 0 1px 0 rgba(91,127,255,0.08);
+  transition: all 0.4s ease;
+  position: relative;
+  overflow: hidden;
 }
+
+[data-app][data-theme="light"] .custom-table tbody tr:nth-child(even) {
+  background: linear-gradient(90deg, #fdfdfd 0%, #f3f6fb 100%) !important;
+  border-left: 4px solid #94a3b8;
+  box-shadow: inset 0 1px 0 rgba(100,116,139,0.08);
+  transition: all 0.4s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+
+
+
+
+/* 11) responsiveness — على الشاشات الصغيرة اجعل كل صف يظهر كمربع رأسي */
+@media (max-width: 720px) {
+  .custom-table,
+  .custom-table thead,
+  .custom-table tbody,
+  .custom-table th,
+  .custom-table td,
+  .custom-table tr {
+    display: block;
+  }
+  .custom-table thead {
+    display: none;
+  }
+  .custom-table tbody tr {
+    display: block;
+    margin-bottom: 10px;
+    border-radius: 12px;
+  }
+  .custom-table tbody td {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px dashed rgba(0,0,0,0.04);
+  }
+  .custom-table tbody td .label {
+    font-weight: 600;
+    color: var(--muted);
+    margin-right: 8px;
+  }
+}
+/*end  new_style_of_tabels */
 /* ========================== Animations ==================== */
 [data-app] .fade-in { animation: fadeIn .35s var(--normal) both; }
 @keyframes fadeIn { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform: translateY(0); } }
@@ -609,7 +809,7 @@ select option {
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
+  z-index: 1200;
   backdrop-filter: blur(3px);
 }
 .modal-backdrop.open { display: flex !important; }
