@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>نظام كاشير — محل منظفات</title>
+<link rel="stylesheet" href="cashier.css" />
+<style>:root{
+  --bg: #f7f9fb;
+  --panel: #ffffff;
+  --muted: #6b7280;
+  --accent: #2563eb; /* أزرق هادي */
+  --accent-2: #10b981; /* أخضر للنجاح */
+  --danger: #ef4444;
+  --text: #111827;
+  --card-shadow: 0 6px 18px rgba(16,24,40,0.06);
+  --glass: rgba(255,255,255,0.6);
+  --radius: 12px;
+  font-family: "Segoe UI", "Noto Kufi Arabic", Tahoma, sans-serif;
+  font-size: 14px;
+}
+
+/* عام */
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--text)}
+body{padding:18px;line-height:1.35;direction:rtl}
+
+/* الحاوية الأساسية */
+.cashier{max-width:1200px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.cashier__header{display:flex;justify-content:space-between;align-items:center}
+.cashier__title{margin:0;font-size:1.2rem}
+.badge{background:var(--accent);color:white;padding:6px 10px;border-radius:8px;font-weight:600}
+.kbd-hint{color:var(--muted);font-size:0.86rem}
+
+/* شبكة الواجهة */
+.cashier__grid{display:grid;grid-template-columns:320px 1fr 300px;gap:14px;align-items:start}
+@media (max-width:1000px){ .cashier__grid{grid-template-columns:1fr;}}
+.panel{background:var(--panel);border-radius:var(--radius);box-shadow:var(--card-shadow);padding:14px;overflow:hidden}
+.panel__title{margin:0 0 10px 0;font-size:1rem}
+.small-title{font-size:0.9rem;margin:8px 0;color:var(--muted)}
+
+/* لوحة المنتج */
+.product-form label{display:block;font-size:0.88rem;margin-bottom:6px}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.row label{flex:1}
+.input{width:100%;padding:10px;border:1px solid #e6eef7;border-radius:10px;background:transparent}
+.input:focus{outline:2px solid rgba(37,99,235,0.12);border-color:var(--accent)}
+.input--small{padding:6px}
+.input--tiny{padding:4px;font-size:0.85rem}
+.input--search{font-size:1rem;padding:12px}
+.select{padding:6px;border-radius:8px}
+
+/* أزرار */
+.btn{background:transparent;border:1px solid #dbeafe;padding:8px 12px;border-radius:10px;cursor:pointer}
+.btn:hover{transform:translateY(-2px)}
+.btn-primary{background:var(--accent);color:white;border:0;box-shadow:0 6px 18px rgba(37,99,235,0.12)}
+.btn-success{background:var(--accent-2);color:white;border:0}
+.btn-outline{border-style:dashed}
+.btn-icon{background:transparent;border:0;padding:6px;font-size:1.1rem;color:var(--danger)}
+.btn-delete{color:var(--danger)}
+
+/* قائمة المنتجات */
+.product-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;max-height:220px;overflow:auto}
+.product-row{padding:8px;border-radius:8px;background:linear-gradient(180deg,#fff,#fbfdff);cursor:pointer;transition:all .15s}
+.product-row:focus, .product-row:hover{transform:translateX(-6px);box-shadow:0 6px 12px rgba(16,24,40,0.06)}
+.product-row strong{display:block}
+.muted{color:var(--muted);font-size:0.85rem}
+
+/* جدول الفاتورة */
+.invoice-table{width:100%;border-collapse:collapse;margin-top:10px}
+.invoice-table th, .invoice-table td{padding:8px;text-align:center;border-bottom:1px solid #f1f5f9;font-size:0.95rem}
+.cell-name{text-align:right;padding-right:12px}
+
+/* ملخص الفاتورة */
+.invoice-summary{margin-top:12px;padding:10px;border-radius:10px;background:linear-gradient(180deg,#fff,#fcfeff)}
+.summary-row{display:flex;justify-content:space-between;padding:6px 0}
+.total-row{font-size:1.15rem;font-weight:700}
+
+/* لوحة الدفع */
+.payment-panel{margin-top:12px}
+.payment-options{display:flex;gap:10px;flex-wrap:wrap}
+.payment-options label{background:#f8fafc;padding:6px 10px;border-radius:8px;border:1px solid #eef2ff}
+.partial-area.hidden{display:none}
+.payment-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+
+/* إيصال */
+.receipt-preview{display:block;padding:12px;border-radius:8px;background:linear-gradient(#fff,#fbfdff);box-shadow:inset 0 0 0 1px rgba(16,24,40,0.03)}
+.receipt-header{text-align:center;margin-bottom:8px}
+.receipt-lines{max-height:240px;overflow:auto;margin-bottom:6px}
+.receipt-line{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #f1f5f9}
+.receipt-summary{margin-top:6px}
+.receipt-foot{font-size:0.86rem;text-align:center;margin-top:8px}
+
+/* لمسات حركية */
+.flash{animation:flashIt .35s ease}
+@keyframes flashIt{from{box-shadow:0 0 0 8px rgba(16,24,40,0.03)} to{box-shadow:none}}
+
+/* استجابة */
+@media (max-width:1000px){
+  .product-list{flex-direction:row;gap:10px;overflow:auto}
+}
+
+/* طباعة الإيصال — نمط صديق للطباعة */
+@media print {
+  body *{visibility:hidden}
+  .receipt-preview, .receipt-preview *{visibility:visible}
+  .receipt-preview{position:fixed;left:0;top:0;width:100%;padding:10px;background:white}
+  .receipt-preview .receipt-line{border-bottom:1px solid #000}
+}
+</style>
+</head>
+<body>
+<main class="cashier" id="app">
+  <header class="cashier__header">
+    <h1 class="cashier__title">نقطة بيع — محل المنظفات</h1>
+    <div class="cashier__meta">
+      <span class="badge">فاتورة جديدة</span>
+      <span class="kbd-hint">اختصارات: <strong>Enter</strong> إضافة سطر — <strong>Ctrl+P</strong> طباعة إيصال</span>
+    </div>
+  </header>
+
+  <section class="cashier__grid">
+
+    <!-- لوحة إضافة صنف / بحث -->
+    <aside class="panel panel--product">
+      <h2 class="panel__title">إضافة صنف / بحث</h2>
+
+      <form id="productForm" class="product-form" autocomplete="off" onsubmit="return false;">
+        <label>بحث (اسم / باركود)
+          <input id="productSearch" class="input input--search" list="prod-suggestions"
+                 placeholder="اكتب اسم المنتج أو امسح الباركود" autofocus />
+          <datalist id="prod-suggestions"></datalist>
+        </label>
+
+        <div class="row">
+          <label>الباركود
+            <input id="barcode" class="input" placeholder="باركود المنتج" />
+          </label>
+          <label>الفئة
+            <input id="category" class="input" placeholder="فئة المنتج" />
+          </label>
+        </div>
+
+        <div class="row">
+          <label>سعر الشراء (مخفي للمشترى)
+            <input id="costPrice" class="input" type="number" step="0.01" placeholder="سعر الشراء" />
+          </label>
+          <label>سعر البيع
+            <input id="sellPrice" class="input" type="number" step="0.01" placeholder="سعر البيع" />
+          </label>
+        </div>
+
+        <div class="row">
+          <label>الكمية بالمخزون
+            <input id="stockQty" class="input" type="number" step="1" value="0" />
+          </label>
+          <label>اسم الصنف
+            <input id="productName" class="input" placeholder="اسم الصنف" />
+          </label>
+        </div>
+
+        <div class="product-form__actions">
+          <button id="btnAddProduct" class="btn btn-primary" type="button">إضافة منتج</button>
+          <button id="btnFill" class="btn" type="button" title="ملء بيانات تجريبية">تجربة</button>
+        </div>
+
+        <p class="muted">سعر الشراء مخزن في المنتج لكنه غير ظاهر للعميل عند الطباعة.</p>
+      </form>
+
+      <div class="panel__list">
+        <h3 class="small-title">المنتجات المتاحة</h3>
+        <ul id="productList" class="product-list" aria-live="polite"></ul>
+      </div>
+    </aside>
+
+    <!-- الفاتورة / لوحة القوائم -->
+    <section class="panel panel--invoice">
+      <h2 class="panel__title">الفاتورة</h2>
+
+      <div class="invoice-controls">
+        <label class="inline">
+          إضافة كمية
+          <input id="lineQty" class="input input--small" type="number" value="1" min="1" />
+        </label>
+        <label class="inline">
+          سعر بديل
+          <input id="linePrice" class="input input--small" type="number" step="0.01" />
+        </label>
+        <button id="btnAddLine" class="btn btn-primary">أضف للسلة (Enter)</button>
+      </div>
+
+      <table class="invoice-table" id="invoiceTable" aria-label="سطر الفاتورة">
+        <thead>
+          <tr>
+            <th>الصنف</th>
+            <th>سعر</th>
+            <th>كمية</th>
+            <th>خصم</th>
+            <th>ضريبة%</th>
+            <th>المجموع</th>
+            <th>حذف</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="invoice-summary" id="invoiceSummary">
+        <div class="summary-row"><span>المجموع الفرعي:</span><strong id="subtotal">0.00</strong></div>
+        <div class="summary-row"><span>مجموع الضريبة:</span><strong id="taxTotal">0.00</strong></div>
+        <div class="summary-row"><span>مجموع الخصم:</span><strong id="discountTotal">0.00</strong></div>
+        <div class="summary-row total-row"><span>الإجمالي المستحق:</span><strong id="grandTotal">0.00</strong></div>
+      </div>
+
+      <div class="payment-panel">
+        <h3 class="small-title">خيارات الدفع</h3>
+        <div class="payment-options">
+          <label><input name="payment" type="radio" value="cash" checked /> نقدي</label>
+          <label><input name="payment" type="radio" value="card" /> بطاقة</label>
+          <label><input name="payment" type="radio" value="partial" /> دفع جزئي</label>
+          <label><input name="payment" type="radio" value="deferred" /> حفظ كفاتورة مؤجلة</label>
+        </div>
+
+        <div id="partialArea" class="partial-area hidden">
+          <label>المبلغ المدفوع الآن
+            <input id="partialPaid" class="input input--small" type="number" step="0.01" />
+          </label>
+          <div class="muted">المتبقي سيحفظ كرصيد للعميل.</div>
+        </div>
+
+        <div class="payment-actions">
+          <button id="btnSaveInvoice" class="btn btn-success">حفظ الفاتورة</button>
+          <button id="btnPrint" class="btn btn-outline">طباعة إيصال</button>
+          <button id="btnSaveDeferred" class="btn">حفظ كمؤجلة</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- شريط جانبي للعمليات السريعة / إيصال للطباعة -->
+    <aside class="panel panel--receipt">
+      <h2 class="panel__title">معاينة/إيصال للطباعة</h2>
+
+      <div id="receiptPreview" class="receipt-preview" aria-hidden="true">
+        <div class="receipt-header">
+          <h3>محل المنظفات</h3>
+          <p>فاتورة رقم: <span id="receiptId">0001</span></p>
+        </div>
+        <div id="receiptLines" class="receipt-lines"></div>
+        <div class="receipt-summary">
+          <div><span>المجموع الفرعي:</span><strong id="rSubtotal">0.00</strong></div>
+          <div><span>الضريبة:</span><strong id="rTax">0.00</strong></div>
+          <div><span>الخصم:</span><strong id="rDiscount">0.00</strong></div>
+          <div class="total"><span>الإجمالي:</span><strong id="rTotal">0.00</strong></div>
+        </div>
+        <p class="muted receipt-foot">شكراً لزيارتكم — تواصل: 010-xxxxxxx</p>
+      </div>
+
+      <div class="panel__help">
+        <p class="muted">تعمل الواجهة بالكيبورد: استخدم حقل البحث ثم Enter لإضافة، أو المسح بالباركود مباشرة.</p>
+      </div>
+    </aside>
+
+  </section>
+</main>
+
+<script>
+/* === بيانات تجريبية محلية (يمكن استبدالها ب API) === */
+const PRODUCTS = [
+  { id: 1, name: "مسحوق غسيل - أبيض 2كجم", barcode: "200100", category: "مساحيق", cost: 25.00, price: 40.00, stock: 20 },
+  { id: 2, name: "منعم أقمشة 1لتر", barcode: "200101", category: "منعم", cost: 18.00, price: 30.00, stock: 15 },
+  { id: 3, name: "مزيل بقع", barcode: "200102", category: "مواد تنظيف", cost: 12.00, price: 20.00, stock: 10 }
+];
+
+const state = {
+  products: [...PRODUCTS],
+  invoiceLines: [],
+  nextReceiptId: 1
+};
+
+/* عناصر DOM مهمة */
+const prodSuggestions = document.getElementById('prod-suggestions');
+const productList = document.getElementById('productList');
+const productSearch = document.getElementById('productSearch');
+const invoiceTableBody = document.querySelector('#invoiceTable tbody');
+const subtotalEl = document.getElementById('subtotal');
+const taxTotalEl = document.getElementById('taxTotal');
+const discountTotalEl = document.getElementById('discountTotal');
+const grandTotalEl = document.getElementById('grandTotal');
+
+const receiptPreview = document.getElementById('receiptPreview');
+const receiptLines = document.getElementById('receiptLines');
+const rSubtotal = document.getElementById('rSubtotal');
+const rTax = document.getElementById('rTax');
+const rDiscount = document.getElementById('rDiscount');
+const rTotal = document.getElementById('rTotal');
+const receiptId = document.getElementById('receiptId');
+
+const partialArea = document.getElementById('partialArea');
+const btnAddProduct = document.getElementById('btnAddProduct');
+const btnFill = document.getElementById('btnFill');
+
+/* تهيئة الاقتراحات والمنتجات */
+function renderProductSuggestions() {
+  prodSuggestions.innerHTML = '';
+  state.products.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = `${p.name} — ${p.barcode}`;
+    prodSuggestions.appendChild(opt);
+  });
+  renderProductList();
+}
+
+function renderProductList() {
+  productList.innerHTML = '';
+  state.products.forEach(p => {
+    const li = document.createElement('li');
+    li.className = 'product-row';
+    li.tabIndex = 0;
+    li.innerHTML = `<strong>${p.name}</strong><small> ${p.category} · ${p.stock} قطعة · ${p.price.toFixed(2)} ج</small>`;
+    li.addEventListener('click', () => {
+      productSearch.value = p.name;
+      document.getElementById('barcode').value = p.barcode;
+      document.getElementById('sellPrice').value = p.price;
+      document.getElementById('productName').value = p.name;
+      document.getElementById('costPrice').value = p.cost;
+      document.getElementById('stockQty').value = p.stock;
+      document.getElementById('category').value = p.category;
+    });
+    productList.appendChild(li);
+  });
+}
+
+/* إضافة منتج جديد (محلياً) */
+btnAddProduct.addEventListener('click', () => {
+  const name = document.getElementById('productName').value.trim();
+  const barcode = document.getElementById('barcode').value.trim() || ("b"+Date.now());
+  const category = document.getElementById('category').value.trim() || 'عام';
+  const cost = parseFloat(document.getElementById('costPrice').value || 0);
+  const price = parseFloat(document.getElementById('sellPrice').value || 0);
+  const stock = parseInt(document.getElementById('stockQty').value || 0, 10);
+
+  if (!name || price <= 0) {
+    alert('أدخل اسم وصيغة سعر بيع صحيحة');
+    return;
+  }
+
+  const id = state.products.length ? Math.max(...state.products.map(p=>p.id))+1 : 1;
+  const newProd = { id, name, barcode, category, cost, price, stock };
+  state.products.push(newProd);
+  renderProductSuggestions();
+  alert('تم إضافة المنتج محلياً');
+});
+
+/* زر تعبئة سريع للتجربة */
+btnFill.addEventListener('click', () => {
+  document.getElementById('productName').value = 'سائل صحون 500مل';
+  document.getElementById('barcode').value = '300999';
+  document.getElementById('category').value = 'سائل';
+  document.getElementById('costPrice').value = '6.00';
+  document.getElementById('sellPrice').value = '12.00';
+  document.getElementById('stockQty').value = '50';
+});
+
+/* إضافة سطر إلى الفاتورة */
+document.getElementById('btnAddLine').addEventListener('click', addLineFromSearch);
+function addLineFromSearch() {
+  const query = productSearch.value.trim();
+  const qty = parseFloat(document.getElementById('lineQty').value || 1);
+  const overridePrice = parseFloat(document.getElementById('linePrice').value);
+  if (!query) return;
+
+  // البحث عن منتج حسب الاسم أو الباركود
+  let product = state.products.find(p => p.name === query || p.barcode === query);
+  if (!product) {
+    // إذا لم يوجد المنتج، أنشئ سطر سريع كمنتج مؤقت
+    product = { id: 'tmp-'+Date.now(), name: query, price: (isNaN(overridePrice) ? 0 : overridePrice), cost: 0, stock: 0 };
+  }
+
+  const priceToUse = (!isNaN(overridePrice) && overridePrice>0) ? overridePrice : product.price || 0;
+  // خصم افتراضي = 0، ضريبة افتراضية 14%
+  const line = { id: Date.now(), productId: product.id, name: product.name, qty: qty, price: priceToUse, discount: { type: 'amount', value: 0 }, taxPercent: 14 };
+
+  state.invoiceLines.push(line);
+  productSearch.value = '';
+  document.getElementById('linePrice').value = '';
+  document.getElementById('lineQty').value = '1';
+  renderInvoice();
+  animateFlash();
+}
+
+/* دوال الحساب والرندرة */
+function calcLineTotal(line) {
+  const base = line.price * line.qty;
+  let discountAmt = 0;
+  if (line.discount.type === 'percent') discountAmt = base * (line.discount.value/100);
+  else discountAmt = line.discount.value || 0;
+  const taxed = (base - discountAmt) * (line.taxPercent/100);
+  const total = (base - discountAmt) + taxed;
+  return { base, discountAmt, taxAmt: taxed, total };
+}
+
+function renderInvoice() {
+  invoiceTableBody.innerHTML = '';
+  let subtotal = 0, taxTotal = 0, discountTotal = 0;
+  state.invoiceLines.forEach((line, idx) => {
+    const { base, discountAmt, taxAmt, total } = calcLineTotal(line);
+    subtotal += base;
+    taxTotal += taxAmt;
+    discountTotal += discountAmt;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="cell-name">${escapeHtml(line.name)}</td>
+      <td>${line.price.toFixed(2)}</td>
+      <td>${line.qty}</td>
+      <td>
+        <input data-idx="${idx}" class="input input--tiny line-discount" value="${line.discount.value}" />
+        <select data-idx="${idx}" class="select select--tiny line-discount-type">
+          <option value="amount" ${line.discount.type==='amount'?'selected':''}>جنية</option>
+          <option value="percent" ${line.discount.type==='percent'?'selected':''}>%</option>
+        </select>
+      </td>
+      <td><input data-idx="${idx}" class="input input--tiny line-tax" value="${line.taxPercent}" /></td>
+      <td>${total.toFixed(2)}</td>
+      <td><button data-idx="${idx}" class="btn btn-icon btn-delete" title="حذف">×</button></td>
+    `;
+    invoiceTableBody.appendChild(tr);
+  });
+
+  subtotalEl.textContent = subtotal.toFixed(2);
+  taxTotalEl.textContent = taxTotal.toFixed(2);
+  discountTotalEl.textContent = discountTotal.toFixed(2);
+  grandTotalEl.textContent = (subtotal + taxTotal - discountTotal).toFixed(2);
+
+  // تحديث الإيصال
+  renderReceipt();
+}
+
+/* تعامل مع تحرير الخصومات والضريبة والحذف */
+document.addEventListener('input', (e) => {
+  if (e.target.classList.contains('line-discount')) {
+    const idx = +e.target.dataset.idx; state.invoiceLines[idx].discount.value = parseFloat(e.target.value || 0);
+    renderInvoice();
+  }
+  if (e.target.classList.contains('line-tax')) {
+    const idx = +e.target.dataset.idx; state.invoiceLines[idx].taxPercent = parseFloat(e.target.value || 0);
+    renderInvoice();
+  }
+});
+document.addEventListener('change', (e) => {
+  if (e.target.classList.contains('line-discount-type')) {
+    const idx = +e.target.dataset.idx; state.invoiceLines[idx].discount.type = e.target.value;
+    renderInvoice();
+  }
+});
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('btn-delete')) {
+    const idx = +e.target.dataset.idx; state.invoiceLines.splice(idx,1); renderInvoice();
+  }
+});
+
+/* حفظ فاتورة (محلياً) وطباعة */
+document.getElementById('btnPrint').addEventListener('click', () => {
+  // إظهار الإيصال للطباعة
+  receiptPreview.style.display = 'block';
+  window.print();
+});
+document.getElementById('btnSaveInvoice').addEventListener('click', () => {
+  alert('تم حفظ الفاتورة محلياً (مثال). يمكنك ربط هذا الزر ب endpoint لحفظ الفاتورة في قاعدة البيانات.');
+});
+
+/* حفظ كفاتورة مؤجلة */
+document.getElementById('btnSaveDeferred').addEventListener('click', () => {
+  alert('تم حفظ الفاتورة كمؤجلة (مثال). ضع هنا منطق الحفظ المؤقت والربط بعملاء.');
+});
+
+/* الدفع الجزئي */
+document.querySelectorAll('input[name="payment"]').forEach(r => {
+  r.addEventListener('change', (e)=>{
+    if (e.target.value === 'partial') partialArea.classList.remove('hidden');
+    else partialArea.classList.add('hidden');
+  });
+});
+
+/* طباعة الإيصال — تجهيز المحتوى */
+function renderReceipt() {
+  receiptLines.innerHTML = '';
+  let subtotal = 0, taxTotal = 0, discountTotal = 0;
+  state.invoiceLines.forEach(line => {
+    const { base, discountAmt, taxAmt, total } = calcLineTotal(line);
+    subtotal += base; taxTotal += taxAmt; discountTotal += discountAmt;
+    const div = document.createElement('div');
+    div.className = 'receipt-line';
+    div.innerHTML = `<span class="r-name">${escapeHtml(line.name)}</span>
+                     <span class="r-qty">${line.qty} × ${line.price.toFixed(2)}</span>
+                     <span class="r-total">${total.toFixed(2)}</span>`;
+    receiptLines.appendChild(div);
+  });
+  rSubtotal.textContent = subtotal.toFixed(2);
+  rTax.textContent = taxTotal.toFixed(2);
+  rDiscount.textContent = discountTotal.toFixed(2);
+  rTotal.textContent = (subtotal + taxTotal - discountTotal).toFixed(2);
+  receiptId.textContent = String(state.nextReceiptId).padStart(4,'0');
+}
+
+/* مساعدة: فلاش خفيف عند الإضافة */
+function animateFlash(){
+  const el = document.querySelector('.panel--invoice');
+  el.classList.remove('flash');
+  void el.offsetWidth;
+  el.classList.add('flash');
+}
+
+/* مسح الباركود — يتم وضع الباركود في حقل البحث مباشرة (همزة المسح) */
+/* يمكن للماسحات أن تدخل النص وتنتهي ب Enter تلقائياً */
+productSearch.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { addLineFromSearch(); e.preventDefault(); }
+});
+
+/* اختصارات لوحة المفاتيح */
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key.toLowerCase() === 'p') {
+    e.preventDefault(); document.getElementById('btnPrint').click();
+  }
+});
+
+/* مساعدة أمنية: ترميز نص */
+function escapeHtml(text) {
+  return (text+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* init */
+renderProductSuggestions();
+renderInvoice();
+
+</script>
+</body>
+</html>

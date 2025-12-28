@@ -1,0 +1,2 @@
+<td>الخصم:</td><td>${discount.toFixed(2)}</td>
+  // <tr><td>المطلوب بعد الخصم:</td><td>${fmt(total) - discount.toFixed(2)}</td></tr>

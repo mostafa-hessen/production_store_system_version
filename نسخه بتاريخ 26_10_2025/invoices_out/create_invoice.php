@@ -79,9 +79,8 @@ if (isset($_REQUEST['action'])) {
     try {
       if ($q === '') {
         $sql = "
-                     SELECT p.id, p.product_code, p.name, p.unit_of_measure, p.current_stock, p.reorder_level,
-                    p.selling_price AS product_sale_price,
-                            COALESCE(b.rem_sum,0) AS remaining_active,
+                    SELECT p.id, p.product_code, p.name, p.unit_of_measure, p.current_stock, p.reorder_level,
+                           COALESCE(b.rem_sum,0) AS remaining_active,
                            COALESCE(b.val_sum,0) AS stock_value_active,
                            (SELECT b2.unit_cost FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_purchase_price,
                            (SELECT b2.sale_price FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_sale_price,
@@ -102,7 +101,6 @@ if (isset($_REQUEST['action'])) {
       } else {
         $sql = "
                     SELECT p.id, p.product_code, p.name, p.unit_of_measure, p.current_stock, p.reorder_level,
-                    p.selling_price AS product_sale_price,
                            COALESCE(b.rem_sum,0) AS remaining_active,
                            COALESCE(b.val_sum,0) AS stock_value_active,
                            (SELECT b2.unit_cost FROM batches b2 WHERE b2.product_id = p.id AND b2.status IN ('active','consumed') ORDER BY b2.received_at DESC, b2.created_at DESC LIMIT 1) AS last_purchase_price,
@@ -1517,14 +1515,14 @@ require_once BASE_DIR . 'partials/header.php';
         // <div class="small-muted">رصيد دخل: ${fmt(p.current_stock)}</div>
         div.innerHTML = `<div>
           <div style="font-weight:800">${esc(p.name)}</div>
-          <div class="small-muted price"> سعر البيع: ${fmt(p.product_sale_price||0)} جنيه</div>
+          <div class="small-muted price"> سعر البيع: ${fmt(p.last_sale_price||0)} جنيه</div>
           <div class="small-muted code " >كود • #${esc(p.product_code)} • ID:${p.id}</div>
           <div class="small-muted">متبقي (Active): ${fmt(rem)}</div>
           <div class="small-muted">آخر شراء:${fmt(p.last_purchase_price||0)} جنيه</div>
 
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
-          ${consumed ? '<div class="badge warn">مستهلك</div>' : `<button class="btn primary add-btn" data-id="${p.id}" data-name="${esc(p.name)}" data-sale="${p.product_sale_price||0}">أضف</button>`}
+          ${consumed ? '<div class="badge warn">مستهلك</div>' : `<button class="btn primary add-btn" data-id="${p.id}" data-name="${esc(p.name)}" data-sale="${p.last_sale_price||0}">أضف</button>`}
           <button class="btn ghost batches-btn" data-id="${p.id}">دفعات</button>
         </div>`;
         wrap.appendChild(div);

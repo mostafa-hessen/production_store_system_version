@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Demo — Ad-hoc Product Flow</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root{--accent:#0d6efd;--muted:#6c757d}
+    body{background:#f4f6fb;font-family:Inter,system-ui,Segoe UI,Roboto,Arial}
+    .app{max-width:1100px;margin:18px auto;padding:16px}
+    .card{border-radius:12px;padding:14px;background:#fff;box-shadow:0 6px 18px rgba(12,20,40,0.06)}
+    header .brand{font-weight:700;font-size:18px}
+    .badge-adhoc{background:#ffc107;color:#111;padding:6px;border-radius:8px;font-weight:700}
+    .nav-item .btn{border-radius:8px}
+    .view{display:none}
+    .view.active{display:block}
+    .muted{color:var(--muted)}
+    .table td,.table th{text-align:right;vertical-align:middle}
+    .label-source{font-size:12px;padding:3px 8px;border-radius:8px}
+    .label-stock{background:#e9ecef}
+    .label-adhoc{background:#fff3cd}
+    .small{font-size:13px}
+    .search{max-width:420px}
+    .status-pill{padding:6px 10px;border-radius:999px;font-weight:600}
+    .status-delivered{background:#e6f4ea;color:#0f5132}
+    .status-pending{background:#fff4e6;color:#663c00}
+    .status-canceled{background:#f8d7da;color:#721c24}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="brand">Ad-hoc Product Flow — المنتج الطيّاري</div>
+        <div class="muted">نموذج عرض تفاعلي للعميل</div>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" id="nav_create">إنشاء فاتورة</button>
+        <button class="btn btn-outline-secondary" id="nav_list">قائمة الفواتير</button>
+        <button class="btn btn-outline-secondary" id="nav_adhoc">منتجات طيّارية</button>
+      </div>
+    </div>
+
+    <!-- CREATE INVOICE VIEW -->
+    <div id="view_create" class="view active">
+      <div class="card mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <strong>صفحة إضافة فاتورة بيع</strong>
+          <div class="d-flex gap-2 align-items-center">
+            <input id="customerName" class="form-control form-control-sm" placeholder="اسم العميل" style="min-width:220px">
+            <button class="btn btn-outline-primary btn-sm" id="btnAddAdhoc">إضافة منتج طيّاري</button>
+            <button class="btn btn-primary btn-sm" id="btnConfirmInvoice">تأكيد الفاتورة</button>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-borderless table-striped">
+            <thead>
+              <tr><th style="width:40px">#</th><th>المادة</th><th style="width:120px">الكمية</th><th style="width:140px">سعر الوحدة</th><th style="width:110px">الشراء</th><th style="width:120px">المجموع</th><th style="width:140px">مصدر</th><th style="width:120px">إجراءات</th></tr>
+            </thead>
+            <tbody id="invoiceRows"></tbody>
+          </table>
+        </div>
+
+        <div class="d-flex justify-content-end gap-4 mt-2">
+          <div class="text-end">
+            <div class="muted small">الإيرادات</div>
+            <div id="summary_subtotal" style="font-weight:700">0.00</div>
+          </div>
+          <div class="text-end">
+            <div class="muted small">تكلفة (COGS) — معروف</div>
+            <div id="summary_cogs" style="font-weight:700">0.00</div>
+          </div>
+          <div class="text-end">
+            <div class="muted small">صافي الربح</div>
+            <div id="summary_profit" style="font-weight:700">0.00</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <strong>منتجات سريعة (نماذج)</strong>
+          <input class="form-control form-control-sm search" id="prodSearch" placeholder="ابحث عن منتج سريع" />
+        </div>
+        <div id="quickProducts" class="d-flex gap-2 flex-wrap"></div>
+      </div>
+    </div>
+
+    <!-- LIST VIEW -->
+    <div id="view_list" class="view">
+      <div class="card mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <strong>قائمة الفواتير</strong>
+          <div>
+            <select id="filter_status" class="form-select form-select-sm">
+              <option value="all">الكل</option>
+              <option value="delivered">مسلمة</option>
+              <option value="pending">مؤجلة</option>
+              <option value="canceled">ملغاة</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-hover">
+            <thead><tr><th>#</th><th>العميل</th><th>التاريخ</th><th>الحالة</th><th>إجمالي</th><th>إجراءات</th></tr></thead>
+            <tbody id="invoicesList"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <strong>تقرير سريع — مبيعات بنود طيّارية (الآخر 30 يوم)</strong>
+        <div id="adhocReport" class="mt-2 small muted"></div>
+      </div>
+    </div>
+
+    <!-- ADHOC PRODUCTS VIEW -->
+    <div id="view_adhoc" class="view">
+      <div class="card mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <strong>صفحة المنتجات الطيّارية</strong>
+          <input id="adhocSearch" class="form-control form-control-sm search" placeholder="ابحث باسم المنتج أو المورد" />
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-striped">
+            <thead><tr><th>#</th><th>الاسم</th><th>الكمية</th><th>سعر بيع</th><th>سعر شراء</th><th>المورد</th><th>التاريخ</th><th>فاتورة</th></tr></thead>
+            <tbody id="adhocProductsTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Ad-hoc modal -->
+  <div class="modal fade" id="modalAdhoc" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+      <form id="formAdhoc" class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">إضافة / تعديل منتج طيّاري</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-2"><label class="form-label">اسم المنتج</label><input required name="name" class="form-control" /></div>
+          <div class="row g-2">
+            <div class="col-6"><label class="form-label">الكمية</label><input required name="qty" type="number" step="0.0001" value="1" class="form-control" /></div>
+            <div class="col-6"><label class="form-label">سعر البيع</label><input required name="sell" type="number" step="0.01" class="form-control" /></div>
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-6"><label class="form-label">سعر الشراء (اختياري)</label><input name="cost" type="number" step="0.0001" class="form-control" /></div>
+            <div class="col-6"><label class="form-label">المورد (اختياري)</label><input name="supplier" class="form-control" /></div>
+          </div>
+          <div class="mt-2"><label class="form-label">ملاحظة</label><textarea name="note" rows="2" class="form-control"></textarea></div>
+          <div class="mt-2 text-danger" id="priceWarn" style="display:none">تحذير: سعر البيع أقل من سعر الشراء!</div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">إلغاء</button><button type="submit" class="btn btn-primary">حفظ</button></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Return modal -->
+  <div class="modal fade" id="modalReturn" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form id="formReturn" class="modal-content"><div class="modal-header"><h5 class="modal-title">مرتجع بند</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div id="returnItemInfo" class="mb-2"></div><div class="mb-2"><label>كمية المرتجع</label><input name="rqty" type="number" step="0.0001" class="form-control" /></div><div class="mb-2"><label>نوع المرتجع</label><select name="rtype" class="form-select"><option value="credit">Credit Note (افتراضي)</option><option value="refund">Refund نقدي</option></select></div></div><div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">إلغاء</button><button class="btn btn-danger" type="submit">تنفيذ المرتجع</button></div></form></div></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // Demo SPA state (local storage-backed)
+    const demo = {
+      products: [
+        {id:34,name:'مسمار 16mm',price:100,stock:2},
+        {id:35,name:'كيس تكاية 1000',price:75,stock:1},
+        {id:101,name:'قلم حبر أسود',price:7.5,stock:30}
+      ],
+      invoices: JSON.parse(localStorage.getItem('demo_invoices')||'[]') ,
+      adhocIndex: 1
+    };
+
+    // UI refs
+    const views = {create: document.getElementById('view_create'), list: document.getElementById('view_list'), adhoc: document.getElementById('view_adhoc')};
+    function showView(name){ Object.values(views).forEach(v=>v.classList.remove('active')); views[name].classList.add('active'); }
+    document.getElementById('nav_create').addEventListener('click', ()=>showView('create'));
+    document.getElementById('nav_list').addEventListener('click', ()=>{ renderInvoices(); showView('list'); });
+    document.getElementById('nav_adhoc').addEventListener('click', ()=>{ renderAdhocProducts(); showView('adhoc'); });
+
+    // invoice working memory
+    let currentInvoice = {id: null, customer:'', status:'pending', items:[], created_at: new Date().toISOString()};
+
+    // modals
+    const modalAdhoc = new bootstrap.Modal(document.getElementById('modalAdhoc'));
+    const modalReturn = new bootstrap.Modal(document.getElementById('modalReturn'));
+
+    // helpers
+    function money(n){ return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+    function calcSummary(){
+      let subtotal=0,cogs=0;
+      currentInvoice.items.forEach(it=>{ subtotal += it.qty*it.sell; if(it.cost!=null) cogs += it.qty*it.cost; });
+      document.getElementById('summary_subtotal').textContent = money(subtotal);
+      document.getElementById('summary_cogs').textContent = money(cogs);
+      document.getElementById('summary_profit').textContent = money(subtotal-cogs);
+    }
+
+    function renderQuickProducts(){ const box = document.getElementById('quickProducts'); box.innerHTML=''; demo.products.forEach(p=>{ const btn = document.createElement('button'); btn.className='btn btn-sm btn-outline-secondary'; btn.textContent = p.name + ' • ' + money(p.price); btn.addEventListener('click', ()=>{ const item = {id:'p'+Date.now(),product_id:p.id,name:p.name,qty:1,sell:p.price,cost:null,is_adhoc:0,note:''}; currentInvoice.items.push(item); renderInvoiceRows(); }); box.append(btn); }); }
+
+    function renderInvoiceRows(){ const tb = document.getElementById('invoiceRows'); tb.innerHTML=''; currentInvoice.items.forEach((it,idx)=>{
+      const tr = document.createElement('tr'); tr.innerHTML = `<td>${idx+1}</td><td><div style="font-weight:700">${it.name}</div><div class='muted small'>${it.note||''}</div></td><td><input class='form-control form-control-sm qty' data-idx='${idx}' value='${it.qty}' style='width:90px'></td><td><input class='form-control form-control-sm sell' data-idx='${idx}' value='${it.sell}' style='width:120px'></td><td>${it.cost!=null?money(it.cost):'-'}</td><td>${money(it.qty*it.sell)}</td><td>${it.is_adhoc?`<span class='label-source label-adhoc'>طيّاري</span><div class='muted small'>${it.supplier||''}</div>`:`<span class='label-source label-stock'>مخزون</span>`}</td><td><button class='btn btn-sm btn-outline-secondary edit' data-idx='${idx}'>تعديل</button> <button class='btn btn-sm btn-outline-danger del' data-idx='${idx}'>حذف</button></td>`;
+      tb.append(tr);
+    });
+    // attach
+    document.querySelectorAll('.del').forEach(b=>b.onclick=(e)=>{ const i=+e.currentTarget.dataset.idx; currentInvoice.items.splice(i,1); renderInvoiceRows(); calcSummary(); });
+    document.querySelectorAll('.qty').forEach(inp=>inp.onchange=(e)=>{ const i=+e.currentTarget.dataset.idx; currentInvoice.items[i].qty = parseFloat(e.currentTarget.value)||0; renderInvoiceRows(); calcSummary(); });
+    document.querySelectorAll('.sell').forEach(inp=>inp.onchange=(e)=>{ const i=+e.currentTarget.dataset.idx; currentInvoice.items[i].sell = parseFloat(e.currentTarget.value)||0; renderInvoiceRows(); calcSummary(); });
+    document.querySelectorAll('.edit').forEach(b=>b.onclick=(e)=>{ const i=+e.currentTarget.dataset.idx; openAdhocEdit(i); });
+    calcSummary(); }
+
+    // Add/Edit Adhoc
+    let editingIndex = null;
+    document.getElementById('btnAddAdhoc').addEventListener('click', ()=>{ editingIndex = null; document.getElementById('formAdhoc').reset(); document.getElementById('priceWarn').style.display='none'; modalAdhoc.show(); });
+    function openAdhocEdit(i){ editingIndex = i; const it = currentInvoice.items[i]; const f = document.getElementById('formAdhoc'); f.name.value = it.name; f.qty.value = it.qty; f.sell.value = it.sell; f.cost.value = it.cost!=null?it.cost:''; f.supplier.value = it.supplier||''; f.note.value = it.note||''; document.getElementById('priceWarn').style.display='none'; modalAdhoc.show(); }
+
+    document.getElementById('formAdhoc').addEventListener('submit',(ev)=>{
+      ev.preventDefault(); const fd = new FormData(ev.target); const name = fd.get('name').trim(); const qty = parseFloat(fd.get('qty'))||0; const sell = parseFloat(fd.get('sell'))||0; const cost = fd.get('cost')? (parseFloat(fd.get('cost'))||0) : null; const supplier = fd.get('supplier')||''; const note = fd.get('note')||'';
+      if(qty<=0||sell<0){ alert('تحقق من البيانات'); return; }
+      if(cost!=null && sell < cost){ document.getElementById('priceWarn').style.display='block'; }
+      if(editingIndex===null){ // add
+        const item = {id:'adhoc_'+(demo.adhocIndex++), product_id:null, name, qty, sell, cost, supplier, note, is_adhoc:1}; currentInvoice.items.push(item);
+      } else { // update
+        const it = currentInvoice.items[editingIndex]; it.name=name; it.qty=qty; it.sell=sell; it.cost=cost; it.supplier=supplier; it.note=note;
+      }
+      modalAdhoc.hide(); renderInvoiceRows(); calcSummary();
+    });
+
+    // Confirm invoice -> save to demo.invoices
+    document.getElementById('btnConfirmInvoice').addEventListener('click', ()=>{
+      if(currentInvoice.items.length===0){ alert('لا توجد بنود في الفاتورة'); return; }
+      currentInvoice.customer = document.getElementById('customerName').value || 'عميل نقدي';
+      // choose status for demo (delivered)
+      currentInvoice.status = 'delivered'; currentInvoice.created_at = new Date().toISOString(); currentInvoice.id = 'inv_'+Date.now(); demo.invoices.push(JSON.parse(JSON.stringify(currentInvoice)));
+      localStorage.setItem('demo_invoices', JSON.stringify(demo.invoices));
+      // reset current invoice
+      currentInvoice = {id:null,customer:'',status:'pending',items:[],created_at:new Date().toISOString()};
+      document.getElementById('customerName').value=''; renderInvoiceRows(); calcSummary(); alert('تم حفظ الفاتورة. سيتم نقلك لصفحة الفواتير'); renderInvoices(); showView('list');
+    });
+
+    // render invoices list
+    function renderInvoices(){ const tb = document.getElementById('invoicesList'); tb.innerHTML=''; const f = document.getElementById('filter_status').value; demo.invoices.forEach((inv, idx)=>{
+      if(f!=='all' && inv.status!==f) return; let total=0; inv.items.forEach(i=> total += i.qty * i.sell);
+      const tr = document.createElement('tr'); tr.innerHTML = `<td>${idx+1}</td><td>${inv.customer}</td><td>${new Date(inv.created_at).toLocaleString()}</td><td><span class='status-pill ${inv.status==='delivered'?'status-delivered':inv.status==='pending'?'status-pending':'status-canceled'}'>${inv.status}</span></td><td>${money(total)}</td><td><button class='btn btn-sm btn-outline-primary view-inv' data-idx='${idx}'>عرض</button></td>`;
+      tb.append(tr);
+    });
+    document.querySelectorAll('.view-inv').forEach(b=>b.onclick=(e)=>{ const i=+e.currentTarget.dataset.idx; openInvoiceDetail(i); });
+    updateAdhocReport(); }
+    document.getElementById('filter_status').addEventListener('change', renderInvoices);
+
+    // invoice detail viewer
+    function openInvoiceDetail(idx){ const inv = demo.invoices[idx]; // render simple detail and open view
+      // build detail in a modal-like new window? We'll reuse create view to show preview
+      // create overlay
+      const overlay = document.createElement('div'); overlay.style.position='fixed'; overlay.style.left=0; overlay.style.top=0; overlay.style.right=0; overlay.style.bottom=0; overlay.style.background='rgba(0,0,0,0.4)'; overlay.style.zIndex=9999; overlay.innerHTML = `<div style='width:900px;margin:40px auto;background:#fff;border-radius:10px;padding:18px;direction:rtl;text-align:right'><div class='d-flex justify-content-between'><h5>تفاصيل الفاتورة</h5><button id='closePreview' class='btn btn-sm btn-light'>إغلاق</button></div><div class='mt-2'><strong>العميل:</strong> ${inv.customer} <br/><strong>التاريخ:</strong> ${new Date(inv.created_at).toLocaleString()}</div><div class='table-responsive mt-2'><table class='table'><thead><tr><th>#</th><th>الاسم</th><th>كمية</th><th>سعر</th><th>شراء</th><th>مجموع</th><th>مصدر</th><th>إرجاع</th></tr></thead><tbody>${inv.items.map((it,i)=>`<tr><td>${i+1}</td><td><strong>${it.name}</strong><div class='muted small'>${it.note||''}</div></td><td>${it.qty}</td><td>${money(it.sell)}</td><td>${it.cost!=null?money(it.cost):'-'}</td><td>${money(it.qty*it.sell)}</td><td>${it.is_adhoc?`<span class='badge-adhoc'>طيّاري</span> ${it.supplier?'<div class=\'muted small\'>'+it.supplier+'</div>':''}`:'مخزون'}</td><td>${it.is_adhoc?`<button class='btn btn-sm btn-outline-danger return-adhoc' data-inv='${idx}' data-item='${i}'>مرتجع</button>`:'--'}</td></tr>`).join('')}</tbody></table></div><div class='d-flex justify-content-end gap-3 mt-2'><button id='printInv' class='btn btn-primary btn-sm'>طباعة</button></div></div>`;
+      document.body.append(overlay);
+      overlay.querySelector('#closePreview').addEventListener('click', ()=>overlay.remove());
+      overlay.querySelectorAll('.return-adhoc').forEach(b=>b.addEventListener('click',(e)=>{ const invIdx = +e.currentTarget.dataset.inv; const itemIdx = +e.currentTarget.dataset.item; openReturnModal(invIdx,itemIdx); }));
+    }
+
+    // return flow for adhoc
+    let currentReturn = {invIdx:null,itemIdx:null};
+    function openReturnModal(invIdx,itemIdx){ currentReturn={invIdx,itemIdx}; const inv = demo.invoices[invIdx]; const it = inv.items[itemIdx]; document.getElementById('returnItemInfo').innerHTML = `<strong>${it.name}</strong><div class='muted small'>فاتورة: ${inv.id || (invIdx+1)} — الكمية المتاحة: ${it.qty}</div>`; document.querySelector('#formReturn [name=rqty]').value = it.qty; document.querySelector('#formReturn [name=rtype]').value='credit'; modalReturn.show(); }
+
+    document.getElementById('formReturn').addEventListener('submit',(ev)=>{ ev.preventDefault(); const rqty = parseFloat(ev.target.rqty.value)||0; const rtype = ev.target.rtype.value; const {invIdx,itemIdx} = currentReturn; const inv = demo.invoices[invIdx]; const it = inv.items[itemIdx]; if(rqty<=0 || rqty>it.qty){ alert('كمية مرتجع غير صحيحة'); return; }
+      // for adhoc: no stock restore, just record credit in invoice record
+      it.qty = it.qty - rqty; // reduce sold quantity (for demo)
+      // record credit note in inv metadata
+      inv.return = inv.return || []; inv.return.push({item:itemIdx,qty:rqty,type:rtype,at:new Date().toISOString()});
+      localStorage.setItem('demo_invoices', JSON.stringify(demo.invoices)); modalReturn.hide(); alert('تم تنفيذ المرتجع كبند طيّاري (Credit/Refund).'); renderInvoices();
+    });
+
+    // adhoc products report
+    function renderAdhocProducts(){ const tb = document.getElementById('adhocProductsTable'); tb.innerHTML=''; let list=[]; demo.invoices.forEach((inv,invIdx)=>{ inv.items.forEach((it)=>{ if(it.is_adhoc) list.push({...it,invoice_ref:invIdx+1,created_at:inv.created_at}); }); }); list.forEach((it,i)=>{ const tr = document.createElement('tr'); tr.innerHTML = `<td>${i+1}</td><td>${it.name}</td><td>${it.qty}</td><td>${money(it.sell)}</td><td>${it.cost!=null?money(it.cost):'-'}</td><td>${it.supplier||'-'}</td><td>${new Date(it.created_at||it.created_at||Date.now()).toLocaleString()}</td><td>${it.invoice_ref}</td>`; tb.append(tr); }); }
+
+    document.getElementById('adhocSearch').addEventListener('input',(e)=>{ const q=e.target.value.trim().toLowerCase(); const tb=document.getElementById('adhocProductsTable'); Array.from(tb.rows).forEach(r=>{ const name=r.cells[1].textContent.toLowerCase(); const sup=r.cells[5].textContent.toLowerCase(); r.style.display = (name.includes(q)||sup.includes(q))? '':'none'; }); });
+
+    // product quick search
+    document.getElementById('prodSearch').addEventListener('input',(e)=>{ const q=e.target.value.trim().toLowerCase(); const btns = document.getElementById('quickProducts').children; for(const b of btns){ b.style.display = b.textContent.toLowerCase().includes(q)?'':'none'; } });
+
+    // adhoc report
+    function updateAdhocReport(){ const rows = demo.invoices.flatMap(inv=> inv.items.filter(it=>it.is_adhoc)); const sales = rows.reduce((s,i)=>s+i.qty*i.sell,0); const cogs = rows.reduce((s,i)=> s + ((i.cost!=null)?i.cost*i.qty:0),0); document.getElementById('adhocReport').textContent = `إجمالي مبيعات البنود الطيّارية: ${money(sales)} — إجمالي COGS المعروف: ${money(cogs)} — هامش: ${money(sales-cogs)}`; }
+
+    // init
+    renderQuickProducts(); renderInvoiceRows(); updateAdhocReport();
+  </script>
+</body>
+</html>

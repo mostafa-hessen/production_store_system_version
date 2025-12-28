@@ -1,0 +1,87 @@
+CREATE TABLE `wallet_transactions` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `customer_id` INT(11) NOT NULL,
+    
+    `type` ENUM('deposit', 'withdraw', 'refund', 'invoice_payment') NOT NULL,
+    
+    `amount` DECIMAL(12,2) NOT NULL,
+    `description` VARCHAR(255) NOT NULL,
+    
+    `wallet_before` DECIMAL(12,2) DEFAULT 0.00,
+    `wallet_after` DECIMAL(12,2) DEFAULT 0.00,
+    
+    `transaction_date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    `created_by` INT(11) NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    PRIMARY KEY (`id`),
+    
+    FOREIGN KEY (`customer_id`) REFERENCES `customers`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+    
+    INDEX idx_customer_date (`customer_id`, `transaction_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+
+CREATE TABLE `invoice_payments` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `invoice_id` int(11) NOT NULL,
+  `payment_amount` decimal(12,2) NOT NULL,
+  `payment_date` timestamp NOT NULL DEFAULT current_timestamp(),
+  `payment_method` enum('cash','bank_transfer','check','card','mixed' , ' wallet') DEFAULT 'cash',
+
+  `notes` text DEFAULT NULL,
+  `created_by` int(11) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `fk_payment_invoice` (`invoice_id`),
+  KEY `fk_payment_user` (`created_by`),
+  CONSTRAINT `fk_payment_invoice` FOREIGN KEY (`invoice_id`) REFERENCES `invoices_out` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_payment_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
+);
+
+ALTER TABLE invoice_payments 
+ADD COLUMN wallet_before DECIMAL(12,2) DEFAULT 0.00 COMMENT 'رصيد المحفظة قبل الدفع',
+ADD COLUMN wallet_after DECIMAL(12,2) DEFAULT 0.00 COMMENT 'رصيد المحفظة بعد الدفع',
+ADD COLUMN work_order_id INT NULL COMMENT 'ربط بالشغلانة';
+
+
+CREATE TABLE IF NOT EXISTS customer_transactions (
+    id INT NOT NULL AUTO_INCREMENT,
+    customer_id INT NOT NULL,
+
+    transaction_type ENUM('invoice', 'payment', 'return', 'deposit', 'withdraw', 'adjustment') NOT NULL,
+
+    amount DECIMAL(12,2) NOT NULL COMMENT 'موجب للزيادة، سالب للنقصان',
+    description VARCHAR(255) NOT NULL,
+
+    invoice_id INT NULL,
+    payment_id INT NULL,
+    return_id INT NULL,
+    wallet_transaction_id INT NULL,  
+    work_order_id INT NULL,
+
+    balance_before DECIMAL(12,2) DEFAULT 0.00,
+    balance_after DECIMAL(12,2) DEFAULT 0.00,
+    wallet_before DECIMAL(12,2) DEFAULT 0.00,
+    wallet_after DECIMAL(12,2) DEFAULT 0.00,
+
+    transaction_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    FOREIGN KEY (invoice_id) REFERENCES invoices_out(id),
+    FOREIGN KEY (payment_id) REFERENCES invoice_payments(id),
+    FOREIGN KEY (return_id) REFERENCES returns(id),
+    FOREIGN KEY (wallet_transaction_id) REFERENCES wallet_transactions(id) ON DELETE SET NULL,
+    FOREIGN KEY (work_order_id) REFERENCES work_orders(id),
+    FOREIGN KEY (created_by) REFERENCES users(id),
+
+    INDEX idx_customer_type (customer_id, transaction_type),
+    INDEX idx_date (transaction_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -1,0 +1,82 @@
+ALTER TABLE customers 
+ADD COLUMN balance DECIMAL(12,2) DEFAULT 0.00 COMMENT 'الرصيد الحالي (مدين + / دائن -)',
+ADD COLUMN wallet DECIMAL(12,2) DEFAULT 0.00 COMMENT 'رصيد المحفظة',
+ADD COLUMN join_date DATE DEFAULT CURRENT_DATE COMMENT 'تاريخ الانضمام';
+
+
+
+CREATE TABLE notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255),
+    message TEXT,
+    is_read TINYINT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
+ALTER TABLE sale_item_allocations 
+ADD COLUMN return_id INT NULL,
+ADD COLUMN is_return BOOLEAN DEFAULT FALSE;
+
+
+
+
+
+5- CREATE TABLE work_orders (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    customer_id INT NOT NULL,
+    title VARCHAR(255) NOT NULL COMMENT 'عنوان الشغلانة',
+    description TEXT COMMENT 'وصف تفصيلي',
+    status ENUM('pending', 'in_progress', 'completed', 'cancelled') DEFAULT 'pending',
+    start_date DATE NOT NULL COMMENT 'تاريخ البدء',
+    notes TEXT COMMENT 'ملاحظات إضافية',
+    total_invoice_amount DECIMAL(12,2) DEFAULT 0.00 COMMENT 'إجمالي فواتير الشغلانة',
+    total_paid DECIMAL(12,2) DEFAULT 0.00 COMMENT 'إجمالي المدفوع',
+    total_remaining DECIMAL(12,2) DEFAULT 0.00 COMMENT 'إجمالي المتبقي',
+    progress_percent INT DEFAULT 0 COMMENT 'نسبة الإنجاز %',
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    FOREIGN KEY (created_by) REFERENCES users(id),
+    INDEX idx_status (status),
+    INDEX idx_customer (customer_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+
+
+
+
+
+CREATE TABLE `returns` (
+  `id` int(11) PRIMARY KEY AUTO_INCREMENT,
+  `invoice_id` int(11) NOT NULL,
+  `customer_id` int(11) NOT NULL,
+  `return_date` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `total_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `return_type` ENUM('full','partial','exchange') DEFAULT 'partial',
+  `status` ENUM('pending','approved','completed','rejected') DEFAULT 'pending',
+  `reason` TEXT,
+  `approved_by` int(11) NULL,
+  `approved_at` DATETIME NULL,
+  `created_by` int(11) NOT NULL,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `notes` TEXT
+);
+
+CREATE TABLE `return_items` (
+  `id` int(11) PRIMARY KEY AUTO_INCREMENT,
+  `return_id` int(11) NOT NULL,
+  `invoice_item_id` int(11) NOT NULL,
+  `product_id` int(11) NOT NULL,
+  `quantity` DECIMAL(10,2) NOT NULL,
+  `return_price` DECIMAL(10,2) NOT NULL, -- السعر وقت الإرجاع
+  `total_amount` DECIMAL(10,2) NOT NULL,
+  `batch_allocations` JSON, -- لتتبع أي دفعات تم إرجاعها
+  `status` ENUM('pending','restocked','discarded') DEFAULT 'pending',
+  `restocked_qty` DECIMAL(10,2) DEFAULT 0.00,
+  `restocked_at` DATETIME NULL,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+);

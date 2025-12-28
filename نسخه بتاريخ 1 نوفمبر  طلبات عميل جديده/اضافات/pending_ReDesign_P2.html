@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>فواتير معلقة — واجهة احترافية</title>
+
+  <!-- ====== CSS (مظهر حديث، RTL) ====== -->
+  <style>
+    :root{
+      --bg:#f5f7fb; --card:#fff; --muted:#6b7280; --accent:#0f62fe; --accent-2:#7c3aed;
+      --danger:#ef4444; --success:#10b981; --glass: rgba(15,98,254,0.08);
+      --radius:12px; --gap:14px;
+      --shadow: 0 8px 24px rgba(13, 20, 38, 0.06);
+      --text:#071133;
+      --glass-2: rgba(0,0,0,0.04);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family: "Noto Sans Arabic", "Segoe UI", Tahoma, Arial, sans-serif;
+      background:linear-gradient(180deg,#f7f9fc, var(--bg));
+      color:var(--text);
+      -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+      direction:rtl;
+    }
+
+    /* Page shell: single scroll container */
+    .shell{height:100vh; display:flex; flex-direction:column; gap:12px; padding:18px}
+    header.top{
+      display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    }
+
+    .brand{
+      display:flex; gap:12px; align-items:center;
+    }
+    .logo{
+      width:56px;height:56px;border-radius:12px; display:grid;place-items:center;
+      background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:white; font-weight:700; font-size:1.15rem;
+      box-shadow:var(--shadow);
+    }
+    h1{margin:0; font-size:1.05rem;}
+    .sub{color:var(--muted); font-size:0.92rem}
+
+    /* top summary */
+    .top-right{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    .stat{
+      background:var(--card); padding:10px 14px; border-radius:12px; box-shadow:var(--shadow);
+      min-width:140px; text-align:right;
+    }
+    .stat .num{font-weight:700; font-size:1.02rem}
+    .stat .lbl{color:var(--muted); font-size:0.85rem}
+
+    /* Controls row */
+    .controls{
+      display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+      margin-top:8px;
+    }
+    .search{
+      display:flex; gap:8px; align-items:center; padding:8px 12px; background:var(--card);
+      border-radius:12px; box-shadow: 0 6px 18px rgba(2,6,23,0.03);
+      min-width:320px;
+    }
+    .search input{border:0; outline:none; width:260px; font-size:0.95rem; direction:ltr}
+    .select, .input, .btn{
+      padding:8px 10px; border-radius:10px; border:1px solid #e6e9ef; background:white; font-size:0.95rem;
+    }
+    .btn{cursor:pointer; background:var(--accent); color:white; border:0; box-shadow:0 8px 20px rgba(15,98,254,0.12)}
+    .btn.ghost{background:transparent; color:var(--accent); border:1px solid rgba(15,98,254,0.08)}
+    .small{font-size:0.86rem; color:var(--muted)}
+
+    /* Layout: left sidebar (filters) + main content */
+    .main{
+      display:grid; grid-template-columns:240px 1fr; gap:18px; align-items:start; flex:1 1 auto; 
+      
+      height: calc(100vh - 170px); /* reserve space for header/control */
+    }
+
+    /* Sidebar filters */
+    .sidebar{background:var(--card); border-radius:12px; padding:12px; box-shadow:var(--shadow); overflow:auto}
+    .filter-group{margin-bottom:10px}
+    .filter-group h3{margin:0 0 8px 0; font-size:0.95rem}
+    .chip{display:inline-block;padding:6px 10px;border-radius:999px;border:1px solid var(--glass-2);margin:4px 6px;cursor:pointer}
+    .chip.active{background:var(--glass); border-color:transparent; font-weight:700}
+
+    /* Main content area (single scroll) */
+    .content{background:transparent; border-radius:12px; padding:6px; overflow:auto}
+    /* toolbar inside content */
+    .toolbar{display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap}
+    .toolbar-left{display:flex; gap:8px; align-items:center}
+    .view-toggle{display:flex; gap:6px}
+
+    /* list/grid container */
+    .list{
+      display:grid; gap:12px;
+      /* grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); */
+    }
+
+    /* card style (compact for many items) */
+    .invoice{
+      display:flex; gap:12px; align-items:center; justify-content:space-between;
+      background:var(--card); padding:12px; border-radius:12px; box-shadow:0 6px 16px rgba(2,6,23,0.03);
+      border:1px solid transparent; transition:transform .12s, box-shadow .12s;
+    }
+    .invoice:hover{transform:translateY(-6px); box-shadow:0 14px 40px rgba(2,6,23,0.06)}
+    .invoice-left{display:flex; gap:12px; align-items:center; min-width:0}
+    .chk{width:36px; height:36px; display:grid; place-items:center}
+    .badge-id{background:var(--glass); padding:8px 10px; border-radius:9px; font-weight:700}
+    .meta{min-width:0}
+    .meta .title{font-weight:700; white-space:nowrap; text-overflow:ellipsis; overflow:hidden}
+    .meta .desc{color:var(--muted); font-size:0.9rem; white-space:nowrap; text-overflow:ellipsis; overflow:hidden}
+
+    .invoice-right{display:flex; gap:12px; align-items:center; min-width:220px}
+    .amount{font-weight:800; text-align:left; min-width:120px}
+    .status{padding:6px 10px; border-radius:999px; font-weight:700; font-size:0.85rem}
+    .status.pending{background:#fff7ed;color:#b45309}
+    .status.paid{background:#ecfdf5;color:#065f46}
+    .status.overdue{background:#fff1f2;color:#9f1239}
+
+    .actions{display:flex; gap:8px}
+    .actions button{padding:8px 10px; border-radius:10px; border:0; cursor:pointer; font-weight:600}
+    .actions .deliver{background:var(--success); color:white}
+    .actions .cancel{background:var(--danger); color:white}
+    .actions .show{background:#eef2ff; color:var(--accent-2)}
+    .actions .edit{background:#f1f5f9; color:var(--text)}
+
+    /* small controls and pagination */
+    .pager{display:flex; gap:8px; align-items:center}
+    .page-num{padding:6px 10px; border-radius:8px; border:1px solid #e6e9ef; background:white}
+
+    /* side panel for details */
+    .sidepanel{
+      position:fixed; top:0; bottom:0; width:420px; right: -440px; /* hidden by default */
+      background:var(--card); box-shadow:-20px 0 40px rgba(2,6,23,0.12); padding:18px; transition: right .28s cubic-bezier(.2,.9,.3,1);
+      z-index:80; overflow:auto;
+    }
+    .sidepanel.open{right:0}
+
+    /* modal (center) */
+    .modal-backdrop{position:fixed; inset:0; background:rgba(2,6,23,0.45); display:none; align-items:center; justify-content:center; z-index:99}
+    .modal{background:var(--card); padding:18px; border-radius:12px; width:420px; box-shadow:var(--shadow)}
+    .modal.show{display:block}
+    .modal h2{margin-top:0}
+
+    /* responsive */
+    @media (max-width:980px){
+      .main{grid-template-columns:1fr; height: calc(100vh - 210px)}
+      .sidebar{order:2}
+      .content{order:1}
+      .logo{width:48px;height:48px}
+    }
+
+    /* accessibility focus */
+    button:focus, .chip:focus, input:focus, select:focus{outline:3px solid rgba(15,98,254,0.12)}
+  </style>
+</head>
+<body>
+  <div class="shell" role="main">
+    <!-- Header -->
+    <header class="top">
+      <div class="brand">
+        <div class="logo">INV</div>
+        <div>
+          <h1>قائمة الفواتير المعلقة</h1>
+          <div class="sub">تصميم متقدم — دعم آلاف الفواتير، بحث سريع، وإجراءات مباشرة على كل فاتورة</div>
+        </div>
+      </div>
+
+      <div class="top-right">
+        <div class="stat"><div class="lbl">العناصر المعروضة</div><div class="num" id="stat-count">0</div></div>
+        <div class="stat"><div class="lbl">المبلغ الإجمالي</div><div class="num" id="stat-amount">0.00 ج.م</div></div>
+        <div class="stat"><div class="lbl">المعلقة</div><div class="num" id="stat-pending">0</div></div>
+      </div>
+    </header>
+
+    <!-- Controls -->
+    <div class="controls">
+      <div class="search" role="search" aria-label="بحث">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 21l-4.35-4.35" stroke="#6b7280" stroke-width="1.5" stroke-linecap="round"/><circle cx="11" cy="11" r="6" stroke="#6b7280" stroke-width="1.5"/></svg>
+        <input id="searchInput" placeholder="ابحث برقم الفاتورة أو اسم العميل أو المبلغ..." />
+      </div>
+
+      <select id="statusFilter" class="select" aria-label="حالة">
+        <option value="all">الكل</option>
+        <option value="pending">معلقة</option>
+        <option value="paid">مدفوعة</option>
+        <option value="overdue">متأخرة</option>
+      </select>
+
+      <select id="sortBy" class="select" aria-label="ترتيب">
+        <option value="date_desc">الأحدث أولاً</option>
+        <option value="date_asc">الأقدم أولاً</option>
+        <option value="amount_desc">الأعلى مبلغاً</option>
+        <option value="amount_asc">الأقل مبلغاً</option>
+      </select>
+
+      <div class="view-toggle" role="tablist" aria-label="طريقة العرض">
+        <button id="listViewBtn" class="btn ghost" title="عرض قائمة">قائمة</button>
+        <button id="compactViewBtn" class="btn ghost" title="عرض مدمج">دمج</button>
+      </div>
+
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <select id="pageSize" class="select" title="عدد العناصر في الصفحة">
+          <option value="10">10 / صفحة</option>
+          <option value="20" selected>20 / صفحة</option>
+          <option value="50">50 / صفحة</option>
+          <option value="100">100 / صفحة</option>
+        </select>
+        <button id="exportBtn" class="btn">تصدير CSV</button>
+      </div>
+    </div>
+
+    <!-- Main grid -->
+    <div class="main">
+      <!-- Sidebar filters -->
+      <aside class="sidebar" aria-label="مرشحات">
+        <div class="filter-group">
+          <h3>نطاق التاريخ</h3>
+          <input id="fromDate" class="input" type="date" />
+          <div style="height:8px"></div>
+          <input id="toDate" class="input" type="date" />
+        </div>
+
+        <div class="filter-group">
+          <h3>نطاق المبلغ</h3>
+          <input id="minAmount" class="input" type="number" placeholder="الحد الأدنى" />
+          <div style="height:8px"></div>
+          <input id="maxAmount" class="input" type="number" placeholder="الحد الأقصى" />
+        </div>
+
+        <div class="filter-group">
+          <h3>التصفية السريعة</h3>
+          <div>
+            <span class="chip" data-q="has_note">مع ملاحظة</span>
+            <span class="chip" data-q="overdue">متأخرة</span>
+            <span class="chip" data-q="big">فوق 5000</span>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <h3>إجراءات سريعة</h3>
+          <button id="selectAllBtn" class="btn ghost" style="width:100%">تحديد الكل</button>
+          <div style="height:8px"></div>
+          <button id="clearAllBtn" class="btn ghost" style="width:100%">إلغاء التحديد</button>
+          <div style="height:8px"></div>
+          <button id="bulkDeliverBtn" class="btn" style="width:100%">وضع كمُسلّم</button>
+        </div>
+
+        <div class="small" style="margin-top:12px; color:var(--muted)">
+          ملاحظة: لربط الباك-إند، استبدل بيانات الـ sample بالـ JSON القادم من السيرفر أو استخدم AJAX.
+        </div>
+      </aside>
+
+      <!-- Content -->
+      <main class="content" id="content" aria-live="polite">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <div class="small" id="rangeInfo">عرض 0 - 0 من 0</div>
+          </div>
+
+          <div class="pager">
+            <div class="small">الصفحة</div>
+            <button id="prevPage" class="btn ghost">السابق</button>
+            <div class="page-num" id="currentPage">1</div>
+            <button id="nextPage" class="btn ghost">التالي</button>
+            <button id="loadMore" class="btn ghost">تحميل المزيد</button>
+          </div>
+        </div>
+
+        <section id="list" class="list" aria-label="قائمة الفواتير"></section>
+
+        <div style="height:16px"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap">
+          <div class="small" id="summaryText">التحديد: 0 عناصر</div>
+          <div style="display:flex; gap:8px">
+            <button id="exportSelected" class="btn ghost">تصدير المحدد</button>
+            <button id="deleteSelected" class="btn ghost" style="color:var(--danger)">حذف المحدد</button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Side panel for details -->
+  <aside class="sidepanel" id="sidepanel" aria-hidden="true">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h3 id="spTitle">تفاصيل الفاتورة</h3>
+      <button id="closePanel" class="btn ghost">إغلاق</button>
+    </div>
+    <div id="spBody" style="margin-top:12px"></div>
+  </aside>
+
+  <!-- Modal backdrop -->
+  <div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal" role="document" id="modalBox">
+      <!-- محتوى المودال ديناميكي -->
+    </div>
+  </div>
+
+  <!-- ====== JS (الوظائف + محاكاة بيانات كبيرة) ====== -->
+  <script>
+    /*****************************************************************************
+     * صفحة متقدمة لعرض الفواتير — ملاحظة:
+     * - بيانات الاختبار تُولَّد هنا (200 فاتورة) لاختبار الأداء.
+     * - للتكامل مع PHP: استبدل `invoices` بمصفوفة من السيرفر (JSON).
+     * - تم تصميم واجهة بحيث تمتلك scroll واحد فقط: العنصر .content هو الوحيد الذي يملك overflow.
+     *****************************************************************************/
+
+    // ---------- توليد بيانات اختبارية كثيرة ----------
+    function rnd(min,max){ return Math.floor(Math.random()*(max-min+1))+min }
+    const names = ['شركة النور','أحمد سليمان','مؤسسة النخبة','سلمى محمد','شركة بركل','مكتب العربي','مؤسسة الطليعة','محمود كامل','شركة الأفق','علي حسن'];
+    const notes = ['شحنة A','خدمة تركيب','فاتورة ترويج','دفع جزئي','ملاحظة عاجلة','','سداد جزئى','خدمة صيانة'];
+    const statuses = ['pending','paid','overdue'];
+
+    let invoices = [];
+    const baseDate = new Date('2025-01-01');
+    for(let i=1;i<=200;i++){
+      const id = 'INV-' + (1000 + i);
+      const client = names[rnd(0,names.length-1)];
+      const date = new Date(baseDate.getTime() + rnd(0,300)*24*3600*1000);
+      const due = new Date(date.getTime() + rnd(5,40)*24*3600*1000);
+      const amount = Number((rnd(50,8000) + Math.random()).toFixed(2));
+      const status = statuses[rnd(0,statuses.length-1)];
+      const note = notes[rnd(0,notes.length-1)];
+      invoices.push({ id, client, date: date.toISOString().slice(0,10), due: due.toISOString().slice(0,10), amount, status, note });
+    }
+
+    // ---------- حالة التطبيق ----------
+    let state = {
+      filtered: [...invoices],
+      view: 'list', // or 'compact'
+      page: 1,
+      pageSize: 20,
+      selected: new Set(),
+    };
+
+    // ---------- عناصر DOM ----------
+    const listEl = document.getElementById('list');
+    const searchInput = document.getElementById('searchInput');
+    const statusFilter = document.getElementById('statusFilter');
+    const sortBy = document.getElementById('sortBy');
+    const pageSizeEl = document.getElementById('pageSize');
+    const currentPageEl = document.getElementById('currentPage');
+    const prevPageBtn = document.getElementById('prevPage');
+    const nextPageBtn = document.getElementById('nextPage');
+    const loadMoreBtn = document.getElementById('loadMore');
+    const statCount = document.getElementById('stat-count');
+    const statAmount = document.getElementById('stat-amount');
+    const statPending = document.getElementById('stat-pending');
+    const rangeInfo = document.getElementById('rangeInfo');
+    const summaryText = document.getElementById('summaryText');
+
+    const sidepanel = document.getElementById('sidepanel');
+    const spTitle = document.getElementById('spTitle');
+    const spBody = document.getElementById('spBody');
+    const closePanel = document.getElementById('closePanel');
+
+    const modalBackdrop = document.getElementById('modalBackdrop');
+    const modalBox = document.getElementById('modalBox');
+
+    // ---------- تنسيقات مساعدة ----------
+    function fmt(n){ return new Intl.NumberFormat('ar-EG').format(n) }
+    function fmtCurrency(n){ return new Intl.NumberFormat('ar-EG', {style:'currency', currency:'EGP'}).format(n) }
+
+    // ---------- ريندر عنصر فاتورة ----------
+    function createInvoiceNode(inv){
+      const row = document.createElement('div');
+      row.className = 'invoice';
+      row.dataset.id = inv.id;
+      row.innerHTML = `
+        <div class="invoice-left">
+          <div class="chk"><input type="checkbox" data-id="${inv.id}" ${state.selected.has(inv.id)?'checked':''}></div>
+          <div>
+            <div class="badge-id">${inv.id}</div>
+          </div>
+          <div class="meta" style="min-width:220px">
+            <div class="title">${escapeHtml(inv.client)}</div>
+            <div class="desc">${escapeHtml(inv.note || '')} — ${inv.date}</div>
+          </div>
+        </div>
+
+        <div class="invoice-right">
+          <div style="min-width:120px; text-align:left">
+            <div class="amount">${fmtCurrency(inv.amount)}</div>
+            <div class="small">استحقاق: ${inv.due}</div>
+          </div>
+          <div>
+            <div class="status ${inv.status}">${statusLabel(inv.status)}</div>
+          </div>
+          <div class="actions">
+            <button class="deliver" data-id="${inv.id}" title="وضع كمُسلّم">تسليم</button>
+            <button class="cancel" data-id="${inv.id}" title="إلغاء">إلغاء</button>
+            <button class="show" data-id="${inv.id}" title="عرض">عرض</button>
+            <button class="edit" data-id="${inv.id}" title="تعديل">تعديل</button>
+          </div>
+        </div>
+      `;
+
+      // أحداث التحديد checkbox
+      row.querySelector('input[type="checkbox"]').addEventListener('change', (e)=>{
+        const id = e.target.dataset.id;
+        if(e.target.checked) state.selected.add(id); else state.selected.delete(id);
+        updateSummarySelected();
+      });
+
+      // أزرار الإجراءات
+      row.querySelector('.deliver').addEventListener('click', ()=> confirmAction('deliver', inv));
+      row.querySelector('.cancel').addEventListener('click', ()=> confirmAction('cancel', inv));
+      row.querySelector('.show').addEventListener('click', ()=> showDetails(inv));
+      row.querySelector('.edit').addEventListener('click', ()=> openEditModal(inv));
+
+      return row;
+    }
+
+    // ---------- وظائف مساعدة ----------
+    function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+    function statusLabel(s){ if(s==='pending') return 'معلقة'; if(s==='paid') return 'مدفوعة'; if(s==='overdue') return 'متأخرة'; return s; }
+
+    // ---------- تحديث الإحصائيات ----------
+    function updateStats(list){
+      const count = list.length;
+      const amount = list.reduce((a,b)=>a+Number(b.amount||0),0);
+      const pending = list.filter(x=>x.status==='pending').length;
+      statCount.textContent = fmt(count);
+      statAmount.textContent = fmtCurrency(amount);
+      statPending.textContent = fmt(pending);
+    }
+
+    // ---------- تطبيق الفلاتر والفرز ----------
+    function applyFilters(){
+      const q = (searchInput.value || '').trim().toLowerCase();
+      const status = statusFilter.value;
+      const from = document.getElementById('fromDate').value;
+      const to = document.getElementById('toDate').value;
+      const minA = Number(document.getElementById('minAmount').value || 0);
+      const maxA = Number(document.getElementById('maxAmount').value || Infinity);
+
+      let res = invoices.filter(inv=>{
+        if(status !== 'all' && inv.status !== status) return false;
+        if(from && inv.date < from) return false;
+        if(to && inv.date > to) return false;
+        if(inv.amount < minA) return false;
+        if(inv.amount > maxA) return false;
+        if(q){
+          const s = `${inv.id} ${inv.client} ${inv.note} ${inv.amount}`.toLowerCase();
+          if(!s.includes(q)) return false;
+        }
+        return true;
+      });
+
+      // chips quick filters (active)
+      document.querySelectorAll('.chip.active').forEach(ch=>{
+        const v = ch.dataset.q;
+        if(v === 'has_note') res = res.filter(x=>x.note && x.note.trim().length>0);
+        if(v === 'overdue') res = res.filter(x=>x.status === 'overdue');
+        if(v === 'big') res = res.filter(x=>x.amount > 5000);
+      });
+
+      // sort
+      const sby = sortBy.value;
+      if(sby === 'date_desc') res.sort((a,b)=> b.date.localeCompare(a.date));
+      if(sby === 'date_asc') res.sort((a,b)=> a.date.localeCompare(b.date));
+      if(sby === 'amount_desc') res.sort((a,b)=> b.amount - a.amount);
+      if(sby === 'amount_asc') res.sort((a,b)=> a.amount - b.amount);
+
+      state.filtered = res;
+      state.page = 1; // reset page on new filter
+      renderPage();
+      updateStats(res);
+    }
+
+    // ---------- ريندر الصفحة الحالية أو تحميل المزيد ----------
+    function renderPage(){
+      const ps = Number(pageSizeEl.value);
+      const start = (state.page-1)*ps;
+      const end = start + ps;
+      const pageItems = state.filtered.slice(start, end);
+
+      // تحديث معلومات النطاق
+      currentPageEl.textContent = state.page;
+      const total = state.filtered.length;
+      rangeInfo.textContent = `عرض ${Math.min(start+1, total)} - ${Math.min(end, total)} من ${total}`;
+
+      // اجعل القائمة تُبدّل (لتحسين الأداء: يمكن استخدام virtual scroll لاحقاً)
+      listEl.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      pageItems.forEach(inv=>{
+        frag.appendChild(createInvoiceNode(inv));
+      });
+      listEl.appendChild(frag);
+
+      updateSummarySelected();
+    }
+
+    // تحميل المزيد (append next page items)
+    function loadMore(){
+      const ps = Number(pageSizeEl.value);
+      const nextPage = state.page + 1;
+      const start = (nextPage-1)*ps;
+      const items = state.filtered.slice(start, start+ps);
+      if(items.length === 0) return;
+      state.page = nextPage;
+      items.forEach(inv=> listEl.appendChild(createInvoiceNode(inv)));
+      currentPageEl.textContent = state.page;
+      const total = state.filtered.length;
+      const end = Math.min(state.page*ps, total);
+      rangeInfo.textContent = `عرض 1 - ${end} من ${total}`;
+    }
+
+    // ---------- اختيار / إلغاء تحديد الكل ----------
+    document.getElementById('selectAllBtn').addEventListener('click', ()=>{
+      state.filtered.slice(0, state.page * Number(pageSizeEl.value)).forEach(inv => state.selected.add(inv.id));
+      updateSummarySelected();
+      // re-render current items to reflect checkbox state
+      document.querySelectorAll('#list input[type="checkbox"]').forEach(cb=>cb.checked = true);
+    });
+    document.getElementById('clearAllBtn').addEventListener('click', ()=>{
+      state.selected.clear();
+      updateSummarySelected();
+      document.querySelectorAll('#list input[type="checkbox"]').forEach(cb=>cb.checked = false);
+    });
+
+    // ---------- bulk deliver ----------
+    document.getElementById('bulkDeliverBtn').addEventListener('click', ()=>{
+      if(state.selected.size === 0){ alert('لم يتم اختيار أي فاتورة'); return; }
+      confirmAction('deliver_bulk', { ids: Array.from(state.selected) });
+    });
+
+    // ---------- show details sidepanel ----------
+    function showDetails(inv){
+      spTitle.textContent = `تفاصيل ${inv.id}`;
+      spBody.innerHTML = `
+        <div class="small"><strong>العميل:</strong> ${escapeHtml(inv.client)}</div>
+        <div class="small"><strong>تاريخ الفاتورة:</strong> ${inv.date}</div>
+        <div class="small"><strong>تاريخ الاستحقاق:</strong> ${inv.due}</div>
+        <div class="small"><strong>المبلغ:</strong> ${fmtCurrency(inv.amount)}</div>
+        <div class="small"><strong>الحالة:</strong> ${statusLabel(inv.status)}</div>
+        <div style="height:8px"></div>
+        <div class="small"><strong>ملاحظات:</strong> ${escapeHtml(inv.note || 'لا توجد')}</div>
+        <div style="height:12px"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" id="spDeliver">تسليم</button>
+          <button class="btn ghost" id="spEdit">تعديل</button>
+        </div>
+      `;
+      // أحداث الأزرار داخل البانل
+      setTimeout(()=>{ // allow DOM to be ready
+        const spDeliver = document.getElementById('spDeliver');
+        const spEdit = document.getElementById('spEdit');
+        spDeliver.addEventListener('click', ()=> confirmAction('deliver', inv));
+        spEdit.addEventListener('click', ()=> openEditModal(inv));
+      },0);
+
+      sidepanel.classList.add('open');
+      sidepanel.setAttribute('aria-hidden','false');
+    }
+    closePanel.addEventListener('click', ()=> {
+      sidepanel.classList.remove('open');
+      sidepanel.setAttribute('aria-hidden','true');
+    });
+
+    // ---------- Edit modal ----------
+    function openEditModal(inv){
+      showModal(`
+        <h2>تعديل ${inv.id}</h2>
+        <div style="margin-top:10px">
+          <label>العميل</label>
+          <input id="editClient" style="width:100%; padding:8px; margin-top:6px" value="${escapeHtml(inv.client)}"/>
+          <div style="height:8px"></div>
+          <label>المبلغ</label>
+          <input id="editAmount" type="number" style="width:100%; padding:8px; margin-top:6px" value="${inv.amount}"/>
+          <div style="height:8px"></div>
+          <label>الحالة</label>
+          <select id="editStatus" style="width:100%; padding:8px; margin-top:6px">
+            <option ${inv.status==='pending'?'selected':''} value="pending">معلقة</option>
+            <option ${inv.status==='paid'?'selected':''} value="paid">مدفوعة</option>
+            <option ${inv.status==='overdue'?'selected':''} value="overdue">متأخرة</option>
+          </select>
+          <div style="height:12px"></div>
+          <div style="display:flex; gap:8px; justify-content:flex-end">
+            <button id="saveEdit" class="btn">حفظ</button>
+            <button id="cancelEdit" class="btn ghost">إلغاء</button>
+          </div>
+        </div>
+      `);
+
+      document.getElementById('cancelEdit').addEventListener('click', hideModal);
+      document.getElementById('saveEdit').addEventListener('click', ()=>{
+        const newClient = document.getElementById('editClient').value;
+        const newAmount = Number(document.getElementById('editAmount').value);
+        const newStatus = document.getElementById('editStatus').value;
+        // تحديث في الذاكرة المحلية — في التكامل مع السيرفر أرسل طلب تحديث AJAX هنا
+        const idx = invoices.findIndex(x=>x.id === inv.id);
+        if(idx !== -1){
+          invoices[idx].client = newClient;
+          invoices[idx].amount = newAmount;
+          invoices[idx].status = newStatus;
+          applyFilters();
+          hideModal();
+        }
+      });
+    }
+
+    // ---------- Confirm action (deliver/cancel) ----------
+    function confirmAction(action, payload){
+      if(action === 'deliver_bulk'){
+        showModal(`
+          <h2>تأكيد تسليم (مجموعة)</h2>
+          <p>هل تريد وضع ${payload.ids.length} فاتورة كمُسلَّمة؟</p>
+          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px">
+            <button id="confirmBtn" class="btn">نعم</button>
+            <button id="cancelBtn" class="btn ghost">إلغاء</button>
+          </div>
+        `);
+        document.getElementById('cancelBtn').addEventListener('click', hideModal);
+        document.getElementById('confirmBtn').addEventListener('click', ()=>{
+          // Simulate server update
+          payload.ids.forEach(id => {
+            const it = invoices.find(x=>x.id===id); if(it) it.status = 'paid';
+          });
+          state.selected.clear();
+          applyFilters();
+          hideModal();
+        });
+        return;
+      }
+
+      const inv = payload;
+      const label = action === 'deliver' ? 'تأكيد التسليم' : (action === 'cancel' ? 'تأكيد الإلغاء' : 'تأكيد');
+      showModal(`
+        <h2>${label}</h2>
+        <p>هل أنت متأكد من تنفيذ "${label}" على الفاتورة <strong>${inv.id}</strong>؟</p>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px">
+          <button id="confirmBtn" class="btn">نعم</button>
+          <button id="cancelBtn" class="btn ghost">إلغاء</button>
+        </div>
+      `);
+      document.getElementById('cancelBtn').addEventListener('click', hideModal);
+      document.getElementById('confirmBtn').addEventListener('click', ()=>{
+        // تنفيذ التغيير محلياً — في التكامل أرسل طلب للسيرفر هنا
+        if(action === 'deliver') {
+          const it = invoices.find(x=>x.id===inv.id); if(it) it.status = 'paid';
+        } else if(action === 'cancel'){
+          // حذف أو وضع علامة ملغاة؛ هنا سنحذف من القائمة كمثال
+          invoices = invoices.filter(x=>x.id !== inv.id);
+        }
+        applyFilters();
+        hideModal();
+      });
+    }
+
+    // ---------- modal helpers ----------
+    function showModal(html){
+      modalBox.innerHTML = html;
+      modalBackdrop.style.display = 'flex';
+      modalBackdrop.setAttribute('aria-hidden','false');
+      // trap focus and allow ESC to close
+      document.addEventListener('keydown', onEscClose);
+    }
+    function hideModal(){
+      modalBackdrop.style.display = 'none';
+      modalBackdrop.setAttribute('aria-hidden','true');
+      modalBox.innerHTML = '';
+      document.removeEventListener('keydown', onEscClose);
+    }
+    function onEscClose(e){ if(e.key === 'Escape') hideModal(); }
+    modalBackdrop.addEventListener('click', (e)=> { if(e.target === modalBackdrop) hideModal(); });
+
+    // ---------- Edit modal & showDetails handled above ----------
+
+    // ---------- Export CSV ----------
+    function exportCSV(rows){
+      const cols = ['id','client','date','due','amount','status','note'];
+      const lines = [cols.join(',')];
+      rows.forEach(r=>{
+        const line = cols.map(c => `"${String(r[c] ?? '').replace(/"/g,'""')}"`).join(',');
+        lines.push(line);
+      });
+      const csv = lines.join('\\n');
+      const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `invoices_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    }
+    document.getElementById('exportBtn').addEventListener('click', ()=> exportCSV(state.filtered));
+    document.getElementById('exportSelected').addEventListener('click', ()=>{
+      const rows = invoices.filter(i=> state.selected.has(i.id));
+      if(rows.length === 0) return alert('لم يتم اختيار عناصر للتصدير');
+      exportCSV(rows);
+    });
+
+    // ---------- pagination controls ----------
+    prevPageBtn.addEventListener('click', ()=>{
+      if(state.page > 1){ state.page--; renderPage(); }
+    });
+    nextPageBtn.addEventListener('click', ()=>{
+      const maxPage = Math.ceil(state.filtered.length / Number(pageSizeEl.value));
+      if(state.page < maxPage){ state.page++; renderPage(); }
+    });
+    loadMoreBtn.addEventListener('click', loadMore);
+
+    pageSizeEl.addEventListener('change', ()=>{
+      state.page = 1; renderPage();
+    });
+
+    // ---------- view toggle ----------
+    document.getElementById('listViewBtn').addEventListener('click', ()=>{
+      state.view = 'list'; document.getElementById('list').style.gridTemplateColumns = '';
+      document.getElementById('list').classList.remove('compact');
+    });
+    document.getElementById('compactViewBtn').addEventListener('click', ()=>{
+      state.view = 'compact'; document.getElementById('list').style.gridTemplateColumns = '1fr';
+      document.getElementById('list').classList.add('compact');
+    });
+
+    // ---------- chips quick filters ----------
+    document.querySelectorAll('.chip').forEach(ch=>{
+      ch.addEventListener('click', ()=>{ ch.classList.toggle('active'); applyFilters(); });
+    });
+
+    // ---------- search/filters events ----------
+    [searchInput, statusFilter, sortBy].forEach(el => el.addEventListener('input', ()=> applyFilters()));
+    ['fromDate','toDate','minAmount','maxAmount'].forEach(id => document.getElementById(id).addEventListener('change', ()=> applyFilters()));
+
+    // ---------- summary selected ----------
+    function updateSummarySelected(){
+      const n = state.selected.size;
+      summaryText.textContent = `التحديد: ${n} عناصر`;
+    }
+
+    // ---------- helper: open edit modal, show side panel done above ----------
+
+    // ---------- utility: open/close panel on overlay click ----------
+    // already handled closePanel
+
+    // ---------- init ----------
+    function init(){
+      applyFilters();
+      updateStats(invoices);
+    }
+
+    init();
+
+    // ---------- small UX: close side panel when clicking outside ----------
+    document.addEventListener('click', (e)=>{
+      if(sidepanel.classList.contains('open')){
+        const inside = sidepanel.contains(e.target) || e.target.closest('.show');
+        if(!inside) { sidepanel.classList.remove('open'); sidepanel.setAttribute('aria-hidden','true'); }
+      }
+    });
+
+  </script>
+</body>
+</html>

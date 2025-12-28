@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>فواتير معلقة — فلترة في الـ Sidebar</title>
+
+  <style>
+    :root{
+      --bg:#f6f8fb; --card:#ffffff; --muted:#6b7280; --accent:#0f62fe; --accent-2:#7c3aed;
+      --danger:#ef4444; --success:#10b981; --glass: rgba(15,98,254,0.06);
+      --radius:12px; --gap:12px; --text:#071133; --shadow: 0 10px 30px rgba(9,20,50,0.06);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family:"Noto Sans Arabic", "Segoe UI", Tahoma, Arial, sans-serif;
+      background:linear-gradient(180deg,#fbfcff,var(--bg)); color:var(--text); direction:rtl;
+      -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+    }
+
+    /* Shell */
+    .shell{height:100vh; display:flex; flex-direction:column; gap:12px; padding:16px;}
+    header.top{display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap}
+    .brand{display:flex; gap:12px; align-items:center}
+    .logo{width:56px;height:56px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#fff;display:grid;place-items:center;font-weight:700;box-shadow:var(--shadow)}
+    h1{margin:0;font-size:1.05rem}
+    .sub{color:var(--muted); font-size:0.92rem}
+
+    /* top stats */
+    .top-stats{display:flex; gap:10px; align-items:center}
+    .stat{background:var(--card); padding:10px 14px; border-radius:10px; box-shadow:0 6px 18px rgba(2,6,23,0.03); min-width:120px}
+    .stat .lbl{color:var(--muted); font-size:0.85rem}
+    .stat .num{font-weight:700; margin-top:4px}
+
+    /* main layout */
+    .main{display:grid; grid-template-columns: 320px 1fr; gap:16px; flex:1 1 auto; height: calc(100vh - 170px);}
+    .sidebar{background:var(--card); border-radius:12px; padding:14px; box-shadow:var(--shadow); overflow:auto}
+    .content{background:transparent; padding:6px; overflow:auto}
+
+    /* sidebar filters */
+    .filter-title{font-weight:700;margin-bottom:8px}
+    .field{display:flex; flex-direction:column; gap:6px; margin-bottom:10px}
+    .field label{font-size:0.9rem; color:var(--muted)}
+    .field input[type="text"], .field input[type="number"], .field input[type="date"], .field textarea, .field select{
+      padding:10px 12px; border-radius:10px; border:1px solid #e6e9ef; background:#fff; font-size:0.95rem;
+    }
+    .field input::placeholder{color:#c7cbd6}
+    .small-hint{font-size:0.82rem; color:var(--muted)}
+
+    .sidebar .btn{width:100%; padding:10px; border-radius:10px; border:0; cursor:pointer; font-weight:700}
+    .btn.apply{background:var(--accent); color:#fff; box-shadow:0 8px 20px rgba(15,98,254,0.12)}
+    .btn.reset{background:transparent; border:1px solid #e6e9ef; color:var(--text)}
+
+    /* list area */
+    .toolbar{display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap}
+    .toolbar .small{color:var(--muted); font-size:0.9rem}
+    .list{display:grid; gap:10px}
+
+    /* invoice card improved */
+    .invoice{display:flex; justify-content:space-between; gap:12px; background:var(--card); padding:12px; border-radius:12px; box-shadow:0 6px 18px rgba(2,6,23,0.03); align-items:center}
+    .invoice-left{display:flex; gap:12px; align-items:center; min-width:0}
+    .invoice-left .badge{background:var(--glass); padding:8px 10px; border-radius:8px; font-weight:800}
+    .meta{min-width:0}
+    .meta .name{font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+    .meta .notes{color:var(--muted); font-size:0.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+    .meta .extra{display:flex; gap:10px; margin-top:6px; color:var(--muted); font-size:0.85rem}
+    .meta .extra .phone{direction:ltr}
+
+    .invoice-right{display:flex; gap:10px; align-items:center}
+    .amount{font-weight:800; min-width:120px; text-align:left}
+    .status{padding:6px 10px; border-radius:999px; font-weight:700}
+    .status.pending{background:#fff7ed;color:#b45309}
+    .status.paid{background:#ecfdf5;color:#065f46}
+    .status.overdue{background:#fff1f2;color:#9f1239}
+
+    .actions{display:flex; gap:8px}
+    .actions button{padding:8px 10px; border-radius:10px; border:0; cursor:pointer; font-weight:700}
+    .actions .deliver{background:var(--success); color:#fff}
+    .actions .cancel{background:var(--danger); color:#fff}
+    .actions .show{background:#eef2ff; color:var(--accent-2)}
+    .actions .edit{background:#f1f5f9; color:var(--text)}
+
+    /* pagination */
+    .pager{display:flex; gap:8px; align-items:center}
+
+    /* responsive */
+    @media (max-width:980px){
+      .main{grid-template-columns:1fr}
+      .sidebar{order:2; height:260px}
+      .content{order:1}
+    }
+
+    /* focus */
+    input:focus, textarea:focus, button:focus{outline:3px solid rgba(15,98,254,0.12)}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="top">
+      <div class="brand">
+        <div class="logo">INV</div>
+        <div>
+          <h1>الفواتير المعلقة</h1>
+          <div class="sub">فلترة مركزة في الشريط الجانبي — عرض واضح ومعلومات مُكملة لكل فاتورة</div>
+        </div>
+      </div>
+
+      <div class="top-stats">
+        <div class="stat"><div class="lbl">العناصر</div><div class="num" id="stat-count">0</div></div>
+        <div class="stat"><div class="lbl">المبلغ الإجمالي</div><div class="num" id="stat-amount">0.00 ج.م</div></div>
+        <div class="stat"><div class="lbl">المعلقة</div><div class="num" id="stat-pending">0</div></div>
+      </div>
+    </header>
+
+    <div class="main">
+      <!-- SIDEBAR: كل الفلاتر هنا -->
+      <aside class="sidebar" aria-label="مرشحات الفواتير">
+        <div class="filter-title">مرشحات البحث</div>
+
+        <div class="field">
+          <label for="fInvoice">بحث برقم الفاتورة</label>
+          <input id="fInvoice" type="text" placeholder="مثال: INV-1001" />
+        </div>
+
+        <div class="field">
+          <label for="fPhone">بحث برقم هاتف العميل</label>
+          <input id="fPhone" type="text" placeholder="مثال: 01012345678 (أرقام عربية/لاتينية مقبولة)" />
+          <div class="small-hint">ادخل رقم الهاتف كامل أو جزء منه</div>
+        </div>
+
+        <div class="field">
+          <label for="fNotes">بحث حسب الملاحظات</label>
+          <input id="fNotes" type="text" placeholder="كلمات من الملاحظات..." />
+        </div>
+
+        <div class="field">
+          <label>من تاريخ (mm/dd/yyyy)</label>
+          <input id="fFrom" type="text" placeholder="MM/DD/YYYY — مثال: 10/01/2025" />
+        </div>
+
+        <div class="field">
+          <label>إلى تاريخ (mm/dd/yyyy)</label>
+          <input id="fTo" type="text" placeholder="MM/DD/YYYY — مثال: 10/31/2025" />
+        </div>
+
+        <div style="height:8px"></div>
+        <div style="display:flex; gap:8px;">
+          <button id="applyFilters" class="btn apply">تطبيق الفلاتر</button>
+          <button id="resetFilters" class="btn reset">إعادة</button>
+        </div>
+
+        <div style="height:12px"></div>
+        <div class="filter-title">إجراءات سريعة</div>
+        <div style="display:flex; gap:8px; flex-direction:column">
+          <button id="selectAll" class="btn">تحديد الكل في الصفحة</button>
+          <button id="clearSelection" class="btn" style="background:#fff;border:1px solid #eee;color:var(--text)">إلغاء التحديد</button>
+          <button id="bulkDeliver" class="btn" style="background:var(--success); color:#fff">تحديد كمُسلَّمة</button>
+        </div>
+
+        <div style="height:12px"></div>
+        <div class="small-hint">ملاحظة: هذا الشريط الجانبي مخصص للفلاتر المتقدمة — اجعلها مصدراً وحيداً للبحث لواجهة أبسط.</div>
+      </aside>
+
+      <!-- CONTENT -->
+      <main class="content" id="contentArea">
+        <div class="toolbar">
+          <div class="small" id="rangeInfo">عرض 0 - 0 من 0</div>
+
+          <div style="display:flex; gap:8px; align-items:center;">
+            <div class="small">عرض</div>
+            <select id="pageSize">
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+
+            <button id="exportCsv" class="btn" style="padding:8px 12px">تصدير CSV</button>
+          </div>
+        </div>
+
+        <section id="list" class="list" aria-label="قائمة الفواتير"></section>
+
+        <div style="height:12px"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div class="small" id="selectionSummary">التحديد: 0</div>
+          <div class="pager">
+            <button id="prevPage" class="btn" style="background:transparent;border:1px solid #eee;color:var(--text)">السابق</button>
+            <span id="currentPage" style="display:inline-block;padding:8px 10px;border:1px solid #eee;border-radius:8px">1</span>
+            <button id="nextPage" class="btn" style="background:transparent;border:1px solid #eee;color:var(--text)">التالي</button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    /***********************
+     * بيانات اختبار (تحتوي: phone, created_by, note)
+     * استبدلها ببيانات السيرفر عند التكامل
+     ***********************/
+    const sample = [
+      {id:'INV-1001', client:'شركة النور', phone:'01012345678', created_by:'mostafa', date:'10/01/2025', due:'10/20/2025', amount:3800.00, status:'pending', note:'شحنة A'},
+      {id:'INV-1002', client:'أحمد سليمان', phone:'01234567890', created_by:'ali', date:'10/02/2025', due:'10/12/2025', amount:1200.50, status:'paid', note:'خدمة تركيب'},
+      {id:'INV-1003', client:'مؤسسة النخبة', phone:'01555556666', created_by:'sara', date:'09/24/2025', due:'10/01/2025', amount:520.00, status:'overdue', note:'فاتورة ترويج'},
+      {id:'INV-1004', client:'سلمى محمد', phone:'01198765432', created_by:'mostafa', date:'10/20/2025', due:'11/05/2025', amount:2400.00, status:'pending', note:''},
+      {id:'INV-1005', client:'شركة بركل', phone:'01099887766', created_by:'mona', date:'09/12/2025', due:'10/12/2025', amount:760.75, status:'overdue', note:'تأخير دفع'}
+    ];
+
+    // لتجربة أداء: توليد 150 فاتورة إضافية
+    function rnd(min,max){return Math.floor(Math.random()*(max-min+1))+min}
+    const names = ['شركة الأفق','مكتب العربي','مؤسسة الطليعة','محمود كامل','شركة النيل'];
+    for(let i=6;i<=150;i++){
+      const id = 'INV-' + (1000 + i);
+      const client = names[rnd(0,names.length-1)];
+      const phone = '01' + rnd(10000000,99999999);
+      const created_by = ['mostafa','ali','sara','mona'][rnd(0,3)];
+      const mm = rnd(1,12).toString().padStart(2,'0');
+      const dd = rnd(1,28).toString().padStart(2,'0');
+      const date = `${mm}/${dd}/2025`;
+      const due = `${mm}/${(dd%28)+5}/2025`;
+      const amount = Number((rnd(50,8000)+Math.random()).toFixed(2));
+      const status = ['pending','paid','overdue'][rnd(0,2)];
+      const note = (rnd(0,3)===0) ? '' : ['ملاحظة عاجلة','دفع جزئى','خدمة صيانة'][rnd(0,2)];
+      sample.push({id, client, phone, created_by, date, due, amount, status, note});
+    }
+
+    let invoices = sample.slice();
+    let filtered = invoices.slice();
+    let page = 1;
+    let pageSize = Number(document.getElementById('pageSize').value);
+    const selected = new Set();
+
+    // DOM
+    const listEl = document.getElementById('list');
+    const statCount = document.getElementById('stat-count');
+    const statAmount = document.getElementById('stat-amount');
+    const statPending = document.getElementById('stat-pending');
+    const rangeInfo = document.getElementById('rangeInfo');
+    const selectionSummary = document.getElementById('selectionSummary');
+    const currentPage = document.getElementById('currentPage');
+
+    // filters elements
+    const fInvoice = document.getElementById('fInvoice');
+    const fPhone = document.getElementById('fPhone');
+    const fNotes = document.getElementById('fNotes');
+    const fFrom = document.getElementById('fFrom');
+    const fTo = document.getElementById('fTo');
+    const applyBtn = document.getElementById('applyFilters');
+    const resetBtn = document.getElementById('resetFilters');
+    const selectAllBtn = document.getElementById('selectAll');
+    const clearSelectionBtn = document.getElementById('clearSelection');
+    const bulkDeliverBtn = document.getElementById('bulkDeliver');
+    const exportCsvBtn = document.getElementById('exportCsv');
+    const prevPageBtn = document.getElementById('prevPage');
+    const nextPageBtn = document.getElementById('nextPage');
+    const pageSizeEl = document.getElementById('pageSize');
+
+    // helpers
+    function fmtCurrency(n){ return new Intl.NumberFormat('ar-EG', {style:'currency', currency:'EGP'}).format(n) }
+
+    function parseMMDDYYYY(s){
+      // يقبل mm/dd/yyyy أو yyyy-mm-dd ويُرجع تاريخ JS صحيح أو null
+      if(!s) return null;
+      s = s.trim();
+      // mm/dd/yyyy
+      // if(/^\\d{1,2}\\/\\d{1,2}\\/\\d{4}$/.test(s)){
+      //   const parts = s.split('/');
+      //   const mm = Number(parts[0]) - 1;
+      //   const dd = Number(parts[1]);
+      //   const yy = Number(parts[2]);
+      //   return new Date(yy, mm, dd);
+      // }
+      // // yyyy-mm-dd (in case user pastes)
+      if(/^\\d{4}-\\d{2}-\\d{2}$/.test(s)){
+        return new Date(s);
+      }
+      // try Date parse fallback
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    function createInvoiceCard(inv){
+      const div = document.createElement('article');
+      div.className = 'invoice';
+      div.innerHTML = `
+        <div class="invoice-left">
+          <div><input type="checkbox" class="chk" data-id="${inv.id}" ${selected.has(inv.id)?'checked':''}></div>
+          <div class="badge">${inv.id}</div>
+          <div class="meta">
+            <div class="name">${escapeHtml(inv.client)}</div>
+            <div class="notes">${escapeHtml(inv.note || '')}</div>
+            <div class="extra">
+              <div class="phone">📞 ${escapeHtml(inv.phone || '-')}</div>
+              <div class="creator">منشأ بواسطة: <strong>${escapeHtml(inv.created_by || '-')}</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="invoice-right">
+          <div class="amount">${fmtCurrency(inv.amount)}</div>
+          <div>
+            <div class="status ${inv.status}">${statusLabel(inv.status)}</div>
+          </div>
+          <div class="actions">
+            <button class="deliver" data-id="${inv.id}">تسليم</button>
+            <button class="cancel" data-id="${inv.id}">إلغاء</button>
+            <button class="show" data-id="${inv.id}">عرض</button>
+            <button class="edit" data-id="${inv.id}">تعديل</button>
+          </div>
+        </div>
+      `;
+
+      // events
+      div.querySelector('.chk').addEventListener('change', (e)=>{
+        const id = e.target.dataset.id;
+        if(e.target.checked) selected.add(id); else selected.delete(id);
+        updateSelectionSummary();
+      });
+      div.querySelector('.deliver').addEventListener('click', ()=> singleAction('deliver', inv));
+      div.querySelector('.cancel').addEventListener('click', ()=> singleAction('cancel', inv));
+      div.querySelector('.show').addEventListener('click', ()=> showDetails(inv));
+      div.querySelector('.edit').addEventListener('click', ()=> editInvoice(inv));
+      return div;
+    }
+
+    function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    function statusLabel(s){ if(s==='pending') return 'معلقة'; if(s==='paid') return 'مدفوعة'; if(s==='overdue') return 'متأخرة'; return s; }
+
+    function applyFilters(){
+      const qInvoice = (fInvoice.value || '').trim().toLowerCase();
+      const qPhone = (fPhone.value || '').trim();
+      const qNotes = (fNotes.value || '').trim().toLowerCase();
+      const fromDate = parseMMDDYYYY(fFrom.value);
+      const toDate = parseMMDDYYYY(fTo.value);
+
+      filtered = invoices.filter(inv=>{
+        // invoice id filter
+        if(qInvoice && !inv.id.toLowerCase().includes(qInvoice)) return false;
+        // phone filter (allow partial)
+        if(qPhone && !(inv.phone || '').includes(qPhone)) return false;
+        // notes filter
+        if(qNotes && !(inv.note || '').toLowerCase().includes(qNotes)) return false;
+        // date range filter (convert inv.date which is mm/dd/yyyy string to Date)
+        const invDate = parseMMDDYYYY(inv.date);
+        if(fromDate && invDate && invDate < fromDate) return false;
+        if(toDate && invDate && invDate > toDate) return false;
+        return true;
+      });
+
+      page = 1;
+      pageSize = Number(pageSizeEl.value);
+      renderPage();
+      updateStats();
+    }
+
+    function renderPage(){
+      const start = (page-1) * pageSize;
+      const end = start + pageSize;
+      const pageItems = filtered.slice(start, end);
+
+      listEl.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      pageItems.forEach(inv => frag.appendChild(createInvoiceCard(inv)));
+      listEl.appendChild(frag);
+
+      // range info
+      const total = filtered.length;
+      rangeInfo.textContent = `عرض ${total === 0 ? 0 : start+1} - ${Math.min(end, total)} من ${total}`;
+      currentPage.textContent = page;
+      updateSelectionSummary();
+    }
+
+    function updateStats(){
+      const total = filtered.length;
+      const amount = filtered.reduce((s,i)=> s + (Number(i.amount)||0), 0);
+      const pending = filtered.filter(i=> i.status === 'pending').length;
+      statCount.textContent = total;
+      statAmount.textContent = fmtCurrency(amount);
+      statPending.textContent = pending;
+    }
+
+    function updateSelectionSummary(){ selectionSummary.textContent = `التحديد: ${selected.size}`; }
+
+    // actions
+    function singleAction(action, inv){
+      if(action === 'deliver'){
+        if(!confirm(`ضع الفاتورة ${inv.id} كمدفوعة؟`)) return;
+        // هنا استدعي API لتحديث الحالة، حالياً تحديث محلي
+        const it = invoices.find(x=>x.id===inv.id);
+        if(it) it.status = 'paid';
+        applyFilters();
+      } else if(action === 'cancel'){
+        if(!confirm(`هل تريد إلغاء الفاتورة ${inv.id}؟`)) return;
+        invoices = invoices.filter(x=> x.id !== inv.id);
+        applyFilters();
+      }
+    }
+
+    function showDetails(inv){
+      alert(`تفاصيل ${inv.id}\\nالعميل: ${inv.client}\\nالهاتف: ${inv.phone}\\nمنشأ بواسطة: ${inv.created_by}\\nالملاحظات: ${inv.note}`);
+    }
+
+    function editInvoice(inv){
+      const newClient = prompt('تعديل اسم العميل', inv.client);
+      if(newClient === null) return;
+      const newAmount = prompt('تعديل المبلغ', inv.amount);
+      if(newAmount === null) return;
+      // تحديث محلي — ربط API هنا عند التكامل
+      const it = invoices.find(x=> x.id === inv.id);
+      if(it){ it.client = newClient; it.amount = Number(newAmount); applyFilters(); }
+    }
+
+    // bulk actions
+    selectAllBtn.addEventListener('click', ()=>{
+      // تحديد كل العناصر في الصفحة الحالية
+      const start = (page-1) * pageSize;
+      const end = start + pageSize;
+      filtered.slice(start, end).forEach(i=> selected.add(i.id));
+      // set checkboxes
+      document.querySelectorAll('#list .chk').forEach(cb=> cb.checked = true);
+      updateSelectionSummary();
+    });
+    clearSelectionBtn.addEventListener('click', ()=>{
+      selected.clear();
+      document.querySelectorAll('#list input[type="checkbox"]').forEach(cb=> cb.checked = false);
+      updateSelectionSummary();
+    });
+    bulkDeliverBtn.addEventListener('click', ()=>{
+      if(selected.size === 0){ alert('لم يتم اختيار عناصر'); return; }
+      if(!confirm(`تأكيد وضع ${selected.size} فاتورة كمدفوعة؟`)) return;
+      // تحديث محلي
+      invoices.forEach(it => { if(selected.has(it.id)) it.status = 'paid'; });
+      selected.clear();
+      applyFilters();
+    });
+
+    // export
+    function exportCSV(rows){
+      const cols = ['id','client','phone','created_by','date','due','amount','status','note'];
+      const lines = [cols.join(',')];
+      rows.forEach(r=>{
+        const line = cols.map(c => `"${String(r[c] ?? '').replace(/"/g,'""')}"`).join(',');
+        lines.push(line);
+      });
+      const csv = lines.join('\\n');
+      const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `invoices_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    }
+    exportCsvBtn.addEventListener('click', ()=> exportCSV(filtered));
+
+    // pagination listeners
+    prevPageBtn.addEventListener('click', ()=> { if(page>1){ page--; renderPage(); } });
+    nextPageBtn.addEventListener('click', ()=> { const max = Math.ceil(filtered.length / pageSize); if(page < max){ page++; renderPage(); } });
+    pageSizeEl.addEventListener('change', ()=> { pageSize = Number(pageSizeEl.value); page = 1; renderPage(); });
+
+    // apply/reset
+    applyBtn.addEventListener('click', applyFilters);
+    resetBtn.addEventListener('click', ()=>{
+      fInvoice.value=''; fPhone.value=''; fNotes.value=''; fFrom.value=''; fTo.value='';
+      selected.clear(); page = 1; pageSize = Number(pageSizeEl.value); filtered = invoices.slice();
+      renderPage(); updateStats(); updateSelectionSummary();
+    });
+
+    // initial render
+    filtered = invoices.slice();
+    renderPage();
+    updateStats();
+    updateSelectionSummary();
+
+    // small UX: keyboard Enter in inputs applies filter
+    [fInvoice,fPhone,fNotes].forEach(el=>{
+      el.addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ applyFilters(); } });
+    });
+
+  </script>
+</body>
+</html>

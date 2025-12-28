@@ -1,0 +1,48 @@
+
+
+ALTER TABLE invoice_out_items
+ADD discount_type ENUM('percent','amount') DEFAULT NULL,
+ADD discount_value DECIMAL(10,2) DEFAULT 0.00,
+ADD discount_amount DECIMAL(12,2) DEFAULT 0.00,
+ADD total_after_discount DECIMAL(12,2) DEFAULT 0.00;  --> لازم تظبطه يبقي يساوي قبل 
+
+
+ALTER TABLE invoice_out_items
+CHANGE total_price total_before_discount DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+
+
+UPDATE invoice_out_items
+SET total_after_discount = total_before_discount
+WHERE discount_amount <= 0;
+
+
+ALTER TABLE invoice_out_items
+
+-- 1. الكمية المرتجعة (تخزين فعلي)
+ADD COLUMN returned_quantity DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT 'الكمية المرتجعة',
+
+-- 2. الكمية المتاحة للمرتجع (محسوبة)
+ADD COLUMN available_for_return DECIMAL(10,2)
+AS (quantity - returned_quantity) PERSISTENT
+COMMENT 'الكمية المتاحة للمرتجع',
+
+-- 3. هل البند مرتجع بالكامل
+ADD COLUMN return_flag TINYINT(1)
+AS (
+    CASE 
+        WHEN returned_quantity >= quantity THEN 1 
+        ELSE 0 
+    END
+) PERSISTENT
+COMMENT '1 إذا تم إرجاع البند بالكامل، 0 غير مكتمل';
+
+
+
+ALTER TABLE invoice_out_items
+ADD unit_price_after_discount DECIMAL(10,2)
+GENERATED ALWAYS AS (
+    CASE 
+        WHEN quantity >= 1 THEN total_after_discount / quantity
+        ELSE total_after_discount
+    END
+) STORED;

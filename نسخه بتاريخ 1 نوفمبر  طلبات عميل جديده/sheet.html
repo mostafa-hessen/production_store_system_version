@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>فاتورة</title>
+<style>
+  body {
+    font-family: "Cairo", sans-serif;
+    background: #fff;
+    margin: 20px;
+    color: #000;
+  }
+
+  h1 {
+    text-align: center;
+    font-weight: bold;
+    margin-bottom: 20px;
+    font-size: 28px;
+  }
+
+  .info {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    font-size: 18px;
+  }
+
+  .info label {
+    font-weight: bold;
+    margin-left: 5px;
+  }
+
+  .info .info-detailes {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  /* تكبير خط اسم العميل ونوع الشغلانة */
+  #client, #jobType {
+    font-size: 22px;
+    font-weight: bold;
+  }
+
+  .info input {
+    border: none;
+    border-bottom: 1px solid #000;
+    outline: none;
+    text-align: center;
+    width: 180px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    font-size: 18px;
+  }
+
+  th, td {
+    border: 1px solid #000;
+    padding: 8px;
+    text-align: center;
+  }
+
+  th {
+    background: #f5f5f5;
+    font-weight: bold;
+  }
+
+  td input {
+    width: 100%;
+    border: none;
+    outline: none;
+    text-align: center;
+    font-size: 18px;
+  }
+
+  .delete-btn {
+    background: #ff4d4d;
+    color: white;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+
+  .delete-btn:hover {
+    background: #d93636;
+  }
+
+  .bottom {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-size: 18px;
+  }
+
+  .bottom label {
+    font-weight: bold;
+    margin: 5px 0;
+  }
+
+  .bottom input {
+    width: 120px;
+    text-align: center;
+    border: 1px solid #000;
+    border-radius: 6px;
+    padding: 5px;
+    font-size: 16px;
+  }
+
+  .btns {
+    margin-bottom: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  button {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 16px;
+  }
+
+  .add-row { background: #4CAF50; color: white; }
+  .print { background: #2196F3; color: white; }
+  .export { background: #FF9800; color: white; }
+  .import { background: #9C27B0; color: white; padding: 5px 20px ;border-radius: 6px; cursor: pointer; }
+
+  input[type="file"] {
+    display: none;
+  }
+
+  @media print {
+    @page { size: A4; margin: 20mm; }
+    body { margin: 0; background: white; color: #000; }
+    .btns, .delete-btn {
+      display: none !important;
+    }
+    
+    /* نخفي عمود الحذف فقط عند الطباعة: هذا سيبقى آخر عمود (لأننا وضعنا إجمالي قبل الحذف) */
+    th:last-child, td:last-child {
+      display: none !important;
+    }
+    input { border: none !important; }
+    th { background: #eaeaea !important; }
+    h1 { margin-top: 0; }
+    table, th, td { border: 1px solid #000; }
+  }
+
+  /* تنسيق عرض إجمالي كل بند */
+  .item-total {
+    font-weight: bold;
+    font-size: 16px;
+    display: inline-block;
+    min-width: 60px;
+  }
+</style>
+</head>
+<body>
+
+<h1 class="no-print">فاتورة</h1>
+
+<div class="info">
+  <div class="info-detailes">
+    <label>العميل:</label>
+    <input type="text" id="client" placeholder="اسم العميل">
+  </div>
+  <div class="info-detailes">
+    <label>نوع الشغلانة:</label>
+    <input type="text" id="jobType" placeholder="نوع الشغلانة">
+  </div>
+  <div class="info-detailes">
+    <label>التاريخ:</label>
+    <input type="date" id="date">
+  </div>
+</div>
+
+<div class="btns">
+  <button class="add-row" onclick="addRow()">➕ إضافة بند</button>
+  <button class="print" onclick="window.print()">🖨️ طباعة</button>
+  <button class="export" onclick="exportCSV()">📤 تصدير CSV</button>
+  <label class="import btn btn-secondary">
+    📥 استيراد CSV
+    <input type="file" id="importFile" accept=".csv" onchange="importCSV(event)">
+  </label>
+</div>
+
+<table id="invoiceTable">
+  <thead>
+    <tr>
+      <th style="width: 10%;">العدد</th>
+      <th style="width: 50%;">البيان</th>
+      <th style="width: 12%;">السعر</th>
+      <th style="width: 13%;">إجمالي السعر</th>
+      <th style="width: 15%;">حذف</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<div class="bottom">
+  <label>المجموع: <input type="number" id="total" readonly></label>
+  <label>الواصل: <input type="number" id="paid" oninput="calcRemaining()"></label>
+  <label>الباقي: <input type="number" id="remaining" readonly></label>
+</div>
+
+<script>
+function addRow(focusFirst = true) {
+  const table = document.getElementById("invoiceTable").getElementsByTagName('tbody')[0];
+  const row = table.insertRow();
+  
+  const countCell = row.insertCell(0);
+  const descCell = row.insertCell(1);
+  const priceCell = row.insertCell(2);
+  const totalCell = row.insertCell(3); // جديد: إجمالي لكل بند
+  const deleteCell = row.insertCell(4);
+
+  countCell.innerHTML = '<input type="number" min="1" value="1" oninput="calcTotal()">';
+  descCell.innerHTML = '<input type="text">';
+  priceCell.innerHTML = '<input type="number" min="0" value="0" oninput="calcTotal()">';
+  totalCell.innerHTML = '<span class="item-total">0.00</span>';
+  deleteCell.innerHTML = '<button class="delete-btn" onclick="deleteRow(this)">حذف</button>';
+
+  const countInput = countCell.querySelector("input");
+  const descInput = descCell.querySelector("input");
+  const priceInput = priceCell.querySelector("input");
+
+  countInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); descInput.focus(); }
+  });
+  descInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); priceInput.focus(); }
+  });
+  priceInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); addRow(); }
+  });
+
+  if (focusFirst) countInput.focus();
+  calcTotal(); // تحديث الإجماليات فور إضافة الصف
+}
+
+function deleteRow(btn) {
+  btn.parentElement.parentElement.remove();
+  calcTotal();
+}
+
+function calcTotal() {
+  const rows = document.querySelectorAll("#invoiceTable tbody tr");
+  let total = 0;
+  rows.forEach(row => {
+    const count = parseFloat(row.cells[0].querySelector("input").value) || 0;
+    const price = parseFloat(row.cells[2].querySelector("input").value) || 0;
+    const itemTotal = count * price;
+    const itemTotalSpan = row.cells[3].querySelector(".item-total");
+    if (itemTotalSpan) itemTotalSpan.textContent = itemTotal.toFixed(2);
+    total += itemTotal;
+  });
+  document.getElementById("total").value = total.toFixed(2);
+  calcRemaining();
+}
+
+function calcRemaining() {
+  const total = parseFloat(document.getElementById("total").value) || 0;
+  const paid = parseFloat(document.getElementById("paid").value) || 0;
+  document.getElementById("remaining").value = (total - paid).toFixed(2);
+}
+
+window.onload = () => addRow();
+
+/* ========== تصدير CSV مع اختيار مكان الحفظ واسم العميل + الشغلانة ========== */
+async function exportCSV() {
+  const client = document.getElementById("client").value || "بدون اسم";
+  const jobType = document.getElementById("jobType").value || "بدون نوع";
+  const date = document.getElementById("date").value || "";
+  const total = document.getElementById("total").value || "";
+  const paid = document.getElementById("paid").value || "";
+  const remaining = document.getElementById("remaining").value || "";
+
+  const rows = document.querySelectorAll("#invoiceTable tbody tr");
+  let csv = `العميل,${client}\nنوع الشغلانة,${jobType}\nالتاريخ,${date}\n\nالعدد,البيان,السعر,اجمالي\n`;
+
+  rows.forEach(row => {
+    const count = row.cells[0].querySelector("input").value || "";
+    const desc = row.cells[1].querySelector("input").value || "";
+    const price = row.cells[2].querySelector("input").value || "";
+    const itemTotal = row.cells[3].querySelector(".item-total")?.textContent || "";
+    // تأكد من اقتطاع الفواصل داخل النص لو فيها (هنا بسيط)
+    const safeDesc = String(desc).replace(/,/g, "؛");
+    csv += `${count},${safeDesc},${price},${itemTotal}\n`;
+  });
+
+  csv += `\nالمجموع,${total}\nالواصل,${paid}\nالباقي,${remaining}\n`;
+
+  try {
+    const cleanClient = client.replace(/[\\/:*?"<>|]/g, "");
+    const cleanJob = jobType.replace(/[\\/:*?"<>|]/g, "");
+    const suggestedName = `فاتورة - ${cleanClient} - ${cleanJob}.csv`;
+
+    const options = {
+      suggestedName: suggestedName,
+      types: [{ description: "CSV File", accept: { "text/csv": [".csv"] } }],
+    };
+
+    const handle = await window.showSaveFilePicker(options);
+    const writable = await handle.createWritable();
+    await writable.write(csv);
+    await writable.close();
+    alert("✅ تم حفظ الملف بنجاح!");
+  } catch (err) {
+    console.log("تم الإلغاء أو حدث خطأ:", err);
+  }
+}
+
+/* ========== استيراد CSV ========== */
+function importCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split("\n").map(l => l.replace(/\r/g, ""));
+
+    const tableBody = document.querySelector("#invoiceTable tbody");
+    tableBody.innerHTML = "";
+
+    document.getElementById("client").value = lines[0]?.split(",")[1]?.trim() || "";
+    document.getElementById("jobType").value = lines[1]?.split(",")[1]?.trim() || "";
+    document.getElementById("date").value = lines[2]?.split(",")[1]?.trim() || "";
+
+    const startIndex = lines.findIndex(l => l.startsWith("العدد"));
+    const endIndex = lines.findIndex(l => l.startsWith("المجموع"));
+    const dataLines = (startIndex >= 0 && endIndex >= 0) ? lines.slice(startIndex + 1, endIndex) : [];
+
+    dataLines.forEach(line => {
+      if (!line.trim()) return;
+      const parts = line.split(",");
+      const count = parts[0] || "";
+      const desc = parts[1] || "";
+      const price = parts[2] || "";
+      // parts[3] قد يكون اجمالي لكن لن نعتمد عليه للحساب، سنحسب من الكمية والسعر
+      addRow(false);
+      const lastRow = tableBody.lastElementChild;
+      lastRow.cells[0].querySelector("input").value = count.trim() || "0";
+      lastRow.cells[1].querySelector("input").value = desc.trim().replace(/؛/g, ",") || "";
+      lastRow.cells[2].querySelector("input").value = price.trim() || "0";
+    });
+
+    // القيم النهائية
+    document.getElementById("total").value = lines.find(l => l.startsWith("المجموع"))?.split(",")[1]?.trim() || "";
+    document.getElementById("paid").value = lines.find(l => l.startsWith("الواصل"))?.split(",")[1]?.trim() || "";
+    document.getElementById("remaining").value = lines.find(l => l.startsWith("الباقي"))?.split(",")[1]?.trim() || "";
+
+    calcTotal();
+  };
+  reader.readAsText(file);
+}
+</script>
+</body>
+</html>
