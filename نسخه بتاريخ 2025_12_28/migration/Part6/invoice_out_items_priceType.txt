@@ -1,0 +1,4 @@
+
+ALTER TABLE invoice_out_items
+ADD COLUMN price_type ENUM('retail','wholesale') 
+NOT NULL DEFAULT 'wholesale' COMMENT 'نوع السعر';

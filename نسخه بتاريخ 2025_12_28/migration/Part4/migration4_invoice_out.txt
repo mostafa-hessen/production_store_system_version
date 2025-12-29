@@ -1,0 +1,87 @@
+
+
+ ALTER TABLE invoices_out 
+ADD COLUMN work_order_id INT NULL COMMENT 'ربط بالشغلانة';
+ALTER TABLE invoices_out MODIFY work_order_id INT NULL;
+
+
+UPDATE invoices_out
+SET total_before_discount = (
+    SELECT IFNULL(SUM(invoice_out_items.total_before_discount), 0)
+    FROM invoice_out_items
+    WHERE invoice_out_items.invoice_out_id = invoices_out.id
+)
+
+
+
+
+UPDATE invoices_out
+SET total_after_discount = (
+    SELECT IFNULL(SUM(invoice_out_items.total_after_discount), 0)
+    FROM invoice_out_items
+    WHERE invoice_out_items.invoice_out_id = invoices_out.id
+)
+WHERE invoices_out.id <= 161
+  AND invoices_out.delivered = 'yes';
+
+
+
+
+
+
+UPDATE invoices_out
+SET profit_amount = total_after_discount - total_cost
+
+
+
+ALTER TABLE invoices_out 
+ADD COLUMN paid_amount DECIMAL(12,2) DEFAULT 0.00,
+ADD COLUMN remaining_amount DECIMAL(12,2) DEFAULT 0.00;
+
+
+UPDATE invoices_out 
+SET paid_amount = COALESCE(total_after_discount, total_before_discount),
+    remaining_amount = 0
+WHERE delivered = 'yes' 
+AND (paid_amount = 0 OR paid_amount IS NULL);
+
+
+
+UPDATE invoices_out 
+SET paid_amount = 0,
+    remaining_amount = COALESCE(total_after_discount, total_before_discount, 0)
+WHERE delivered = 'no' 
+AND (paid_amount = 0 OR paid_amount IS NULL);
+
+
+
+UPDATE invoices_out
+SET total_cost = (
+    SELECT IFNULL(SUM(invoice_out_items.cost_price_per_unit * invoice_out_items.quantity), 0)
+    FROM invoice_out_items
+    WHERE invoice_out_items.invoice_out_id = invoices_out.id
+)
+
+
+SELECT * FROM invoices_out WHERE discount_amount > 0 OR discount_value > 0;
+
+
+UPDATE invoice_out_items
+SET unit_price_after_discount = total_after_discount / quantity
+WHERE id = 380;  -- غير الرقم حسب الفاتورة
+
+
+
+
+ALTER TABLE invoices_out
+ADD discount_scope ENUM('invoice','items','mixed')
+DEFAULT 'items'
+COMMENT 'مكان تطبيق الخصم';
+
+
+
+
+
+ALTER TABLE invoices_out
+MODIFY delivered ENUM('yes','no','canceled','reverted','partial')
+NOT NULL DEFAULT 'no';

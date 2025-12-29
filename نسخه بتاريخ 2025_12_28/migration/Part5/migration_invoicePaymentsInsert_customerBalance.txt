@@ -1,0 +1,26 @@
+
+
+INSERT INTO invoice_payments (invoice_id, payment_amount, payment_method, notes, created_by, payment_date)
+SELECT 
+    id,
+    COALESCE(total_after_discount,0),
+    'cash',
+    'دفعة تلقائية - ترحيل من النظام القديم',
+    COALESCE(created_by),
+    created_at
+FROM invoices_out 
+WHERE delivered = 'yes'
+AND NOT EXISTS (
+    SELECT 1 FROM invoice_payments WHERE invoice_id = invoices_out.id
+);  
+
+
+UPDATE customers c
+LEFT JOIN (
+    SELECT customer_id, SUM(remaining_amount) AS total_remaining
+    FROM invoices_out
+    
+   WHERE delivered IN ('no', 'partial') 
+    GROUP BY customer_id
+) x ON c.id = x.customer_id
+SET c.balance = COALESCE(x.total_remaining, 0);
