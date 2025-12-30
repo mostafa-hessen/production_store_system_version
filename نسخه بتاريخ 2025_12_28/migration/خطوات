@@ -1,0 +1,496 @@
+ALTER TABLE customers 
+ADD COLUMN balance DECIMAL(12,2) DEFAULT 0.00 COMMENT 'الرصيد الحالي (مدين + / دائن -)',
+ADD COLUMN wallet DECIMAL(12,2) DEFAULT 0.00 COMMENT 'رصيد المحفظة',
+ADD COLUMN join_date DATE DEFAULT CURRENT_DATE COMMENT 'تاريخ الانضمام';
+
+
+
+CREATE TABLE notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255),
+    message TEXT,
+    is_read TINYINT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
+ALTER TABLE sale_item_allocations 
+ADD COLUMN return_id INT NULL,
+ADD COLUMN is_return BOOLEAN DEFAULT FALSE;
+
+
+
+
+
+5- CREATE TABLE work_orders (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    customer_id INT NOT NULL,
+    title VARCHAR(255) NOT NULL COMMENT 'عنوان الشغلانة',
+    description TEXT COMMENT 'وصف تفصيلي',
+    status ENUM('pending', 'in_progress', 'completed', 'cancelled') DEFAULT 'pending',
+    start_date DATE NOT NULL COMMENT 'تاريخ البدء',
+    notes TEXT COMMENT 'ملاحظات إضافية',
+    total_invoice_amount DECIMAL(12,2) DEFAULT 0.00 COMMENT 'إجمالي فواتير الشغلانة',
+    total_paid DECIMAL(12,2) DEFAULT 0.00 COMMENT 'إجمالي المدفوع',
+    total_remaining DECIMAL(12,2) DEFAULT 0.00 COMMENT 'إجمالي المتبقي',
+    progress_percent INT DEFAULT 0 COMMENT 'نسبة الإنجاز %',
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    FOREIGN KEY (created_by) REFERENCES users(id),
+    INDEX idx_status (status),
+    INDEX idx_customer (customer_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+
+
+
+
+
+CREATE TABLE `returns` (
+  `id` int(11) PRIMARY KEY AUTO_INCREMENT,
+  `invoice_id` int(11) NOT NULL,
+  `customer_id` int(11) NOT NULL,
+  `return_date` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `total_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `return_type` ENUM('full','partial','exchange') DEFAULT 'partial',
+  `status` ENUM('pending','approved','completed','rejected') DEFAULT 'pending',
+  `reason` TEXT,
+  `approved_by` int(11) NULL,
+  `approved_at` DATETIME NULL,
+  `created_by` int(11) NOT NULL,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `notes` TEXT
+);
+
+CREATE TABLE `return_items` (
+  `id` int(11) PRIMARY KEY AUTO_INCREMENT,
+  `return_id` int(11) NOT NULL,
+  `invoice_item_id` int(11) NOT NULL,
+  `product_id` int(11) NOT NULL,
+  `quantity` DECIMAL(10,2) NOT NULL,
+  `return_price` DECIMAL(10,2) NOT NULL, -- السعر وقت الإرجاع
+  `total_amount` DECIMAL(10,2) NOT NULL,
+  `batch_allocations` JSON, -- لتتبع أي دفعات تم إرجاعها
+  `status` ENUM('pending','restocked','discarded') DEFAULT 'pending',
+  `restocked_qty` DECIMAL(10,2) DEFAULT 0.00,
+  `restocked_at` DATETIME NULL,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+
+=======================================step 2=============================================================
+
+
+ALTER TABLE invoice_out_items
+ADD discount_type ENUM('percent','amount') DEFAULT NULL,
+ADD discount_value DECIMAL(10,2) DEFAULT 0.00,
+ADD discount_amount DECIMAL(12,2) DEFAULT 0.00,
+ADD total_after_discount DECIMAL(12,2) DEFAULT 0.00;  --> لازم تظبطه يبقي يساوي قبل 
+
+
+ALTER TABLE invoice_out_items
+CHANGE total_price total_before_discount DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+
+
+UPDATE invoice_out_items
+SET total_after_discount = total_before_discount
+WHERE discount_amount <= 0;
+
+
+ALTER TABLE invoice_out_items
+
+-- 1. الكمية المرتجعة (تخزين فعلي)
+ADD COLUMN returned_quantity DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT 'الكمية المرتجعة',
+
+-- 2. الكمية المتاحة للمرتجع (محسوبة)
+ADD COLUMN available_for_return DECIMAL(10,2)
+AS (quantity - returned_quantity) PERSISTENT
+COMMENT 'الكمية المتاحة للمرتجع',
+
+-- 3. هل البند مرتجع بالكامل
+ADD COLUMN return_flag TINYINT(1)
+AS (
+    CASE 
+        WHEN returned_quantity >= quantity THEN 1 
+        ELSE 0 
+    END
+) PERSISTENT
+COMMENT '1 إذا تم إرجاع البند بالكامل، 0 غير مكتمل';
+
+
+
+ALTER TABLE invoice_out_items
+ADD unit_price_after_discount DECIMAL(10,2)
+GENERATED ALWAYS AS (
+    CASE 
+        WHEN quantity >= 1 THEN total_after_discount / quantity
+        ELSE total_after_discount
+    END
+) STORED;
+
+
+
+ALTER TABLE invoice_out_items
+ADD COLUMN price_type ENUM('retail','wholesale') 
+NOT NULL DEFAULT 'wholesale' COMMENT 'نوع السعر';
+
+
+
+
+============================================step 3 =========================================
+CREATE TABLE `wallet_transactions` (
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `customer_id` INT(11) NOT NULL,
+    
+    `type` ENUM('deposit', 'withdraw', 'refund', 'invoice_payment') NOT NULL,
+    
+    `amount` DECIMAL(12,2) NOT NULL,
+    `description` VARCHAR(255) NOT NULL,
+    
+    `wallet_before` DECIMAL(12,2) DEFAULT 0.00,
+    `wallet_after` DECIMAL(12,2) DEFAULT 0.00,
+    
+    `transaction_date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    `created_by` INT(11) NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    PRIMARY KEY (`id`),
+    
+    FOREIGN KEY (`customer_id`) REFERENCES `customers`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+    
+    INDEX idx_customer_date (`customer_id`, `transaction_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+
+CREATE TABLE `invoice_payments` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `invoice_id` int(11) NOT NULL,
+  `payment_amount` decimal(12,2) NOT NULL,
+  `payment_date` timestamp NOT NULL DEFAULT current_timestamp(),
+  `payment_method` enum('cash','bank_transfer','check','card','mixed' , ' wallet') DEFAULT 'cash',
+
+  `notes` text DEFAULT NULL,
+  `created_by` int(11) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `fk_payment_invoice` (`invoice_id`),
+  KEY `fk_payment_user` (`created_by`),
+  CONSTRAINT `fk_payment_invoice` FOREIGN KEY (`invoice_id`) REFERENCES `invoices_out` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_payment_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
+);
+
+ALTER TABLE invoice_payments 
+ADD COLUMN wallet_before DECIMAL(12,2) DEFAULT 0.00 COMMENT 'رصيد المحفظة قبل الدفع',
+ADD COLUMN wallet_after DECIMAL(12,2) DEFAULT 0.00 COMMENT 'رصيد المحفظة بعد الدفع',
+ADD COLUMN work_order_id INT NULL COMMENT 'ربط بالشغلانة';
+
+
+
+CREATE TABLE IF NOT EXISTS customer_transactions (
+    id INT NOT NULL AUTO_INCREMENT,
+    customer_id INT NOT NULL,
+
+    transaction_type ENUM('invoice', 'payment', 'return', 'deposit', 'withdraw', 'adjustment') NOT NULL,
+
+    amount DECIMAL(12,2) NOT NULL COMMENT 'موجب للزيادة، سالب للنقصان',
+    description VARCHAR(255) NOT NULL,
+
+    invoice_id INT NULL,
+    payment_id INT NULL,
+    return_id INT NULL,
+    wallet_transaction_id INT NULL,  
+    work_order_id INT NULL,
+
+    balance_before DECIMAL(12,2) DEFAULT 0.00,
+    balance_after DECIMAL(12,2) DEFAULT 0.00,
+    wallet_before DECIMAL(12,2) DEFAULT 0.00,
+    wallet_after DECIMAL(12,2) DEFAULT 0.00,
+
+    transaction_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    FOREIGN KEY (invoice_id) REFERENCES invoices_out(id),
+    FOREIGN KEY (payment_id) REFERENCES invoice_payments(id),
+    FOREIGN KEY (return_id) REFERENCES returns(id),
+    FOREIGN KEY (wallet_transaction_id) REFERENCES wallet_transactions(id) ON DELETE SET NULL,
+    FOREIGN KEY (work_order_id) REFERENCES work_orders(id),
+    FOREIGN KEY (created_by) REFERENCES users(id),
+
+    INDEX idx_customer_type (customer_id, transaction_type),
+    INDEX idx_date (transaction_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+
+
+==========================================step 4  invoices_out==================================================
+
+
+ ALTER TABLE invoices_out 
+ADD COLUMN work_order_id INT NULL COMMENT 'ربط بالشغلانة';
+ALTER TABLE invoices_out MODIFY work_order_id INT NULL;
+
+
+UPDATE invoices_out
+SET total_before_discount = (
+    SELECT IFNULL(SUM(invoice_out_items.total_before_discount), 0)
+    FROM invoice_out_items
+    WHERE invoice_out_items.invoice_out_id = invoices_out.id
+)
+
+
+
+
+UPDATE invoices_out
+SET total_after_discount = (
+    SELECT IFNULL(SUM(invoice_out_items.total_after_discount), 0)
+    FROM invoice_out_items
+    WHERE invoice_out_items.invoice_out_id = invoices_out.id
+)
+WHERE invoices_out.id <= 161
+  AND invoices_out.delivered = 'yes';
+
+
+
+
+
+
+UPDATE invoices_out
+SET profit_amount = total_after_discount - total_cost
+
+
+
+ALTER TABLE invoices_out 
+ADD COLUMN paid_amount DECIMAL(12,2) DEFAULT 0.00,
+ADD COLUMN remaining_amount DECIMAL(12,2) DEFAULT 0.00;
+
+
+UPDATE invoices_out 
+SET paid_amount = COALESCE(total_after_discount, total_before_discount),
+    remaining_amount = 0
+WHERE delivered = 'yes' 
+AND (paid_amount = 0 OR paid_amount IS NULL);
+
+
+
+UPDATE invoices_out 
+SET paid_amount = 0,
+    remaining_amount = COALESCE(total_after_discount, total_before_discount, 0)
+WHERE delivered = 'no' 
+AND (paid_amount = 0 OR paid_amount IS NULL);
+
+
+
+UPDATE invoices_out
+SET total_cost = (
+    SELECT IFNULL(SUM(invoice_out_items.cost_price_per_unit * invoice_out_items.quantity), 0)
+    FROM invoice_out_items
+    WHERE invoice_out_items.invoice_out_id = invoices_out.id
+)
+
+
+SELECT * FROM invoices_out WHERE discount_amount > 0 OR discount_value > 0;
+
+
+UPDATE invoice_out_items
+SET unit_price_after_discount = total_after_discount / quantity
+WHERE id = 380;  -- غير الرقم حسب الفاتورة
+
+
+
+
+
+
+
+ALTER TABLE invoices_out
+ADD discount_scope ENUM('invoice','items','mixed')
+DEFAULT 'items'
+COMMENT 'مكان تطبيق الخصم';
+
+
+ALTER TABLE invoices_out
+MODIFY delivered ENUM('yes','no','canceled','reverted','partial')
+NOT NULL DEFAULT 'no';
+
+
+
+=========================================== step 5  customer balence and invoice_payments ==================================================
+
+
+
+INSERT INTO invoice_payments (invoice_id, payment_amount, payment_method, notes, created_by, payment_date)
+SELECT 
+    id,
+    COALESCE(total_after_discount,0),
+    'cash',
+    'دفعة تلقائية - ترحيل من النظام القديم',
+    COALESCE(created_by),
+    created_at
+FROM invoices_out 
+WHERE delivered = 'yes'
+AND NOT EXISTS (
+    SELECT 1 FROM invoice_payments WHERE invoice_id = invoices_out.id
+);  
+
+
+UPDATE customers c
+LEFT JOIN (
+    SELECT customer_id, SUM(remaining_amount) AS total_remaining
+    FROM invoices_out
+    
+   WHERE delivered IN ('no', 'partial') 
+    GROUP BY customer_id
+) x ON c.id = x.customer_id
+SET c.balance = COALESCE(x.total_remaining, 0);
+
+
+
+
+========================================== step 6 customer_transactions ==================================================
+
+INSERT INTO customer_transactions
+(customer_id, transaction_type, amount, description, invoice_id, payment_id, transaction_date, created_by, balance_before, balance_after)
+WITH ordered_transactions AS (
+    SELECT
+        t.customer_id,
+        t.transaction_type,
+        t.amount,
+        t.description,
+        t.invoice_id,
+        t.payment_id,
+        t.transaction_date,
+        t.created_by,
+        CASE WHEN t.transaction_type = 'invoice' THEN t.amount ELSE -t.amount END AS signed_amount
+    FROM (
+        -- الفواتير فقط (delivered = no, yes, partial)
+        SELECT
+            invoices_out.customer_id,
+            'invoice' AS transaction_type,
+            invoices_out.total_after_discount AS amount,
+            CONCAT('فاتورة رقم ', invoices_out.id) AS description,
+            invoices_out.id AS invoice_id,
+            NULL AS payment_id,
+            invoices_out.created_at AS transaction_date,
+            COALESCE(invoices_out.created_by, 5) AS created_by
+        FROM invoices_out
+        WHERE invoices_out.delivered IN ('no', 'yes', 'partial')
+          AND invoices_out.total_after_discount > 0
+
+        UNION ALL
+
+        SELECT
+            invoices_out.customer_id,
+            'payment' AS transaction_type,
+            invoice_payments.payment_amount AS amount,
+            CONCAT('دفعة على فاتورة رقم ', invoices_out.id) AS description,
+            invoices_out.id AS invoice_id,
+            invoice_payments.id AS payment_id,
+            invoice_payments.payment_date AS transaction_date,
+            COALESCE(invoice_payments.created_by, 5) AS created_by
+        FROM invoices_out
+        JOIN invoice_payments ON invoice_payments.invoice_id = invoices_out.id
+        WHERE invoices_out.delivered IN ('no', 'yes', 'partial')
+    ) AS t
+)
+SELECT
+    customer_id,
+    transaction_type,
+    amount,
+    description,
+    invoice_id,
+    payment_id,
+    transaction_date,
+    created_by,
+    COALESCE(
+        LAG(cumulative_balance) OVER(PARTITION BY customer_id ORDER BY transaction_date, invoice_id, payment_id),
+        0
+    ) AS balance_before,
+    COALESCE(
+        LAG(cumulative_balance) OVER(PARTITION BY customer_id ORDER BY transaction_date, invoice_id, payment_id),
+        0
+    ) + signed_amount AS balance_after
+FROM (
+    SELECT *,
+        SUM(signed_amount) OVER(PARTITION BY customer_id ORDER BY transaction_date, invoice_id, payment_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_balance
+    FROM ordered_transactions
+) AS cum;
+
+
+
+
+-============================================= step 7 return purchase   ============================================
+
+
+-- في جدول purchase_invoices نضيف:
+ALTER TABLE purchase_invoices 
+ADD COLUMN total_returned_amount DECIMAL(12,2) DEFAULT 0.00 AFTER total_amount,
+ADD COLUMN net_amount DECIMAL(12,2) AS (total_amount - total_returned_amount) STORED;
+
+
+-- في جدول purchase_invoice_items نضيف:
+ALTER TABLE purchase_invoice_items 
+ADD COLUMN qty_returned DECIMAL(13,4) DEFAULT 0.0000 AFTER qty_received;
+
+CREATE TABLE purchase_returns (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    return_number VARCHAR(50) UNIQUE, -- RET-YYYY-0001
+    supplier_id INT NOT NULL,
+    purchase_invoice_id INT NOT NULL, -- الفاتورة الأصلية
+    return_date DATE NOT NULL,
+    status ENUM('pending', 'approved', 'completed', 'cancelled') DEFAULT 'pending',
+    return_type ENUM('full_return', 'partial_defective', 'partial_excess', 'wrong_item') NOT NULL,
+    total_quantity DECIMAL(13,4) DEFAULT 0.0000,
+    total_value DECIMAL(12,2) DEFAULT 0.00,
+    reason TEXT,
+    notes TEXT,
+    created_by INT,
+    approved_by INT,
+    approved_at DATETIME,
+    completed_by INT,
+    completed_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
+    FOREIGN KEY (purchase_invoice_id) REFERENCES purchase_invoices(id)
+);
+
+
+CREATE TABLE purchase_return_items (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    purchase_return_id INT NOT NULL,
+    batch_id BIGINT UNSIGNED NOT NULL, -- الدفعة المرتجعة منها
+    purchase_invoice_item_id INT, -- البند الأصلي (اختياري)
+    product_id INT NOT NULL,
+    quantity DECIMAL(13,4) NOT NULL,
+    unit_cost DECIMAL(13,4) NOT NULL, -- التكلفة وقت الإرجاع
+    total_value DECIMAL(12,2) AS (quantity * unit_cost) STORED,
+    product_condition ENUM('new', 'defective', 'damaged', 'expired') DEFAULT 'defective',
+    return_reason VARCHAR(255),
+    batch_qty_before DECIMAL(13,4), -- الكمية قبل الإرجاع
+    batch_qty_after DECIMAL(13,4), -- الكمية بعد الإرجاع
+    status ENUM('pending', 'approved', 'completed', 'rejected') DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (purchase_return_id) REFERENCES purchase_returns(id),
+    FOREIGN KEY (batch_id) REFERENCES batches(id),
+    FOREIGN KEY (purchase_invoice_item_id) REFERENCES purchase_invoice_items(id),
+    FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+
+
+ALTER TABLE batches 
+ADD COLUMN returned_quantity DECIMAL(13,4) DEFAULT 0.0000,
+ADD COLUMN last_return_reason VARCHAR(255) DEFAULT NULL,
+ADD COLUMN last_return_date DATE DEFAULT NULL,
+ADD INDEX idx_return_status (status, returned_quantity);

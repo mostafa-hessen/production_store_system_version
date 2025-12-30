@@ -1,0 +1,634 @@
+    import  AppData  from "./app_data.js";
+
+
+
+
+
+    import WalletManager from "./wallet.js";
+    import CustomerManager from "./customer.js";
+    import PrintManager from "./print.js";
+    import UIManager from "./ui.js";
+    
+    const WorkOrderManager = {
+        init() {
+          // بيانات الشغلانات الابتدائية
+          AppData.workOrders = [
+            {
+              id: 1,
+              name: "تركيب شباك المعادي",
+              description: "تركيب شباك ألوميتال مقاس 2×1.5 في فيلا المعادي",
+              status: "pending",
+              startDate: "2024-01-20",
+              notes: "يجب الانتهاء قبل نهاية الشهر",
+              invoices: [123, 124, 125],
+              createdBy: "مدير النظام",
+            },
+
+            {
+              id: 2,
+              name: "تصليح باب خشب",
+              description: "تصليح باب خشب وتغيير مفصلات في شقة الزمالك",
+              status: "completed",
+              startDate: "2024-01-15",
+              notes: "تم التسليم والعميل راضي",
+              invoices: [123, 124],
+              createdBy: "مدير النظام",
+            },
+          ];
+
+          this.updateWorkOrdersTable();
+        },
+
+        updateWorkOrdersTable() {
+          const container = document.getElementById("workOrdersContainer");
+          container.innerHTML = "";
+
+          AppData.workOrders.forEach((workOrder) => {
+            const workOrderCard = document.createElement("div");
+            workOrderCard.className = "col-md-6 mb-3";
+
+            // الحصول على الفواتير المرتبطة
+            const relatedInvoices = AppData.invoices.filter((inv) =>
+              workOrder.invoices.includes(inv.id)
+            );
+
+            const totalInvoices = relatedInvoices.reduce(
+              (sum, inv) => sum + inv.total,
+              0
+            );
+            const totalPaid = relatedInvoices.reduce(
+              (sum, inv) => sum + inv.paid,
+              0
+            );
+            const totalRemaining = totalInvoices - totalPaid;
+            const progressPercent =
+              totalInvoices > 0 ? (totalPaid / totalInvoices) * 100 : 0;
+
+            // تحديد حالة الشغلانة
+            let statusBadge = "";
+            if (workOrder.status === "pending") {
+              statusBadge =
+                '<span class="status-badge badge-pending">  قيد التنفيذ</span>';
+            } else if (workOrder.status === "in_progress") {
+              statusBadge =
+                '<span class="status-badge badge-partial">جاري العمل</span>';
+            } else if (workOrder.status === "completed") {
+              statusBadge =
+                '<span class="status-badge badge-paid">مكتمل</span>';
+            }
+
+            // في WorkOrderManager.updateWorkOrdersTable():
+            workOrderCard.innerHTML = `
+    <div class="work-order-card">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+            <h5>${workOrder.name}</h5>
+            ${statusBadge}
+        </div>
+        <p class="text-muted">${workOrder.description}</p>
+        <div class="row mb-2">
+            <div class="col-6">
+                <small class="text-muted">تاريخ البدء:</small>
+                <div>${workOrder.startDate}</div>
+            </div>
+            <div class="col-6">
+                <small class="text-muted">الفواتير:</small>
+                <div>${relatedInvoices.length} فاتورة</div>
+            </div>
+        </div>
+        
+        <!-- شريط التقدم -->
+        <div class="work-order-progress bg-light">
+            <div class="progress-bar bg-success" style="width: ${progressPercent}%"></div>
+        </div>
+        
+        <div class="row text-center">
+            <div class="col-4">
+                <small class="text-muted">المطلوب</small>
+                <div class="fw-bold">${totalInvoices.toFixed(2)} ج.م</div>
+            </div>
+            <div class="col-4">
+                <small class="text-muted">المدفوع</small>
+                <div class="fw-bold text-success">${totalPaid.toFixed(
+                  2
+                )} ج.م</div>
+            </div>
+            <div class="col-4">
+                <small class="text-muted">المتبقي</small>
+                <div class="fw-bold text-danger">${totalRemaining.toFixed(
+                  2
+                )} ج.م</div>
+            </div>
+        </div>
+        
+        <div class="action-buttons mt-3">
+            <button class="btn btn-sm btn-outline-info view-work-order" data-work-order-id="${
+              workOrder.id
+            }">
+                <i class="fas fa-eye"></i> عرض
+            </button>
+            ${
+              totalRemaining > 0
+                ? `
+            <button class="btn btn-sm btn-outline-success pay-work-order" data-work-order-id="${workOrder.id}">
+                <i class="fas fa-money-bill-wave"></i> سداد
+            </button>
+            `
+                : ""
+            }
+            <button class="btn btn-sm btn-outline-primary print-work-order" data-work-order-id="${
+              workOrder.id
+            }">
+                <i class="fas fa-print"></i> طباعة
+            </button>
+        </div>
+    </div>
+`;
+            container.appendChild(workOrderCard);
+          });
+
+          // إضافة مستمعي الأحداث
+          this.attachWorkOrderEventListeners();
+        },
+
+        // في WorkOrderManager.attachWorkOrderEventListeners():
+        attachWorkOrderEventListeners() {
+          // زر عرض الشغلانة
+          document.querySelectorAll(".view-work-order").forEach((btn) => {
+            btn.addEventListener("click", function () {
+              const workOrderId = parseInt(
+                this.getAttribute("data-work-order-id")
+              );
+              WorkOrderManager.showWorkOrderDetails(workOrderId);
+            });
+          });
+
+          // زر سداد الشغلانة
+          document.querySelectorAll(".pay-work-order").forEach((btn) => {
+            btn.addEventListener("click", function () {
+              const workOrderId = parseInt(
+                this.getAttribute("data-work-order-id")
+              );
+
+              // تعيين نوع السداد إلى شغلانة
+              document.getElementById("payWorkOrderRadio").checked = true;
+              document.getElementById("invoicesPaymentSection").style.display =
+                "none";
+              document.getElementById("workOrderPaymentSection").style.display =
+                "block";
+
+              // تحديد الشغلانة
+              PaymentManager.selectWorkOrderForPayment(workOrderId);
+              document.getElementById("workOrderSearch").value = "";
+
+              // فتح المودال
+              const paymentModal = new bootstrap.Modal(
+                document.getElementById("paymentModal")
+              );
+              paymentModal.show();
+            });
+          });
+
+          // زر طباعة الشغلانة
+          // في WorkOrderManager.attachWorkOrderEventListeners():
+          document.querySelectorAll(".print-work-order").forEach((btn) => {
+            btn.addEventListener("click", function (e) {
+              e.preventDefault();
+              e.stopPropagation();
+              const workOrderId = parseInt(
+                this.getAttribute("data-work-order-id")
+              );
+              PrintManager.printWorkOrderInvoices(workOrderId);
+            });
+          });
+          // زر تعديل الشغلانة
+          document.querySelectorAll(".edit-work-order").forEach((btn) => {
+            btn.addEventListener("click", function () {
+              const workOrderId = parseInt(
+                this.getAttribute("data-work-order-id")
+              );
+              // يمكنك إضافة وظيفة التعديل هنا
+              Swal.fire("معلومة", "وظيفة التعديل قيد التطوير", "info");
+            });
+          });
+        },
+
+        showWorkOrderInvoices(workOrderId) {
+          const workOrder = AppData.workOrders.find(
+            (wo) => wo.id === workOrderId
+          );
+          if (!workOrder) return;
+
+          const relatedInvoices = AppData.invoices.filter((inv) =>
+            workOrder.invoices.includes(inv.id)
+          );
+
+          const totalInvoices = relatedInvoices.reduce(
+            (sum, inv) => sum + inv.total,
+            0
+          );
+          const totalPaid = relatedInvoices.reduce(
+            (sum, inv) => sum + inv.paid,
+            0
+          );
+          const totalRemaining = totalInvoices - totalPaid;
+
+          document.getElementById("workOrderInvoicesName").textContent =
+            workOrder.name;
+          document.getElementById("workOrderTotalInvoices").textContent =
+            totalInvoices.toFixed(2) + " ج.م";
+          document.getElementById("workOrderTotalPaid").textContent =
+            totalPaid.toFixed(2) + " ج.م";
+          document.getElementById("workOrderTotalRemaining").textContent =
+            totalRemaining.toFixed(2) + " ج.م";
+
+          const tbody = document.getElementById("workOrderInvoicesList");
+          tbody.innerHTML = "";
+
+          relatedInvoices.forEach((invoice) => {
+            const row = document.createElement("tr");
+            let statusBadge = "";
+            if (invoice.status === "pending") {
+              statusBadge =
+                '<span class="status-badge badge-pending">مؤجل</span>';
+            } else if (invoice.status === "partial") {
+              statusBadge =
+                '<span class="status-badge badge-partial">جزئي</span>';
+            } else if (invoice.status === "paid") {
+              statusBadge = '<span class="status-badge badge-paid">مسلم</span>';
+            }
+
+            // إنشاء tooltip للبنود
+            let itemsTooltip = "";
+            if (invoice.items && invoice.items.length > 0) {
+              const itemsList = invoice.items
+                .map((item) => {
+                  const itemTotal = (item.quantity || 0) * (item.price || 0);
+                  return `
+                                <div class="tooltip-item">
+                                    <div>
+                                        <div class="tooltip-item-name">${
+                                          item.productName || "منتج"
+                                        }</div>
+                                        <div class="tooltip-item-details">الكمية: ${
+                                          item.quantity || 0
+                                        } | السعر: ${(item.price || 0).toFixed(
+                    2
+                  )} ج.م</div>
+                                    </div>
+                                    <div class="fw-bold">${itemTotal.toFixed(
+                                      2
+                                    )} ج.م</div>
+                                </div>
+                            `;
+                })
+                .join("");
+
+              itemsTooltip = `
+                            <div class="invoice-items-tooltip">
+                                <div class="tooltip-header">بنود الفاتورة ${
+                                  invoice.number
+                                }</div>
+                                ${itemsList}
+                                <div class="tooltip-total">
+                                    <span>الإجمالي:</span>
+                                    <span>${invoice.total.toFixed(2)} ج.م</span>
+                                </div>
+                            </div>
+                        `;
+            }
+
+            row.innerHTML = `
+  
+                        <td class="position-relative">
+                            ${invoice.number}
+                            ${itemsTooltip}
+                            
+                        </td>
+                        <td>${invoice.date}</td>
+                        <td>${invoice.total.toFixed(2)} ج.م</td>
+                        <td>${invoice.paid.toFixed(2)} ج.م</td>
+                        <td>${invoice.remaining.toFixed(2)} ج.م</td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-info view-work-order-invoice" data-invoice-id="${
+                              invoice.id
+                            }">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </td>
+                    `;
+            tbody.appendChild(row);
+          });
+
+          // إضافة مستمع للأزرار
+          document
+            .querySelectorAll(".view-work-order-invoice")
+            .forEach((btn) => {
+              btn.addEventListener("click", function () {
+                const invoiceId = parseInt(
+                  this.getAttribute("data-invoice-id")
+                );
+                InvoiceManager.showInvoiceDetails(invoiceId);
+              });
+            });
+
+          const modal = new bootstrap.Modal(
+            document.getElementById("workOrderInvoicesModal")
+          );
+          modal.show();
+        },
+
+        getWorkOrderInvoices(workOrderId) {
+          const workOrder = AppData.workOrders.find(
+            (wo) => wo.id === workOrderId
+          );
+          if (!workOrder) return [];
+
+          return AppData.invoices.filter((invoice) =>
+            workOrder.invoices.includes(invoice.id)
+          );
+        },
+
+        // في WorkOrderManager، أضف هذه الدالة:
+        showWorkOrderDetails(workOrderId) {
+          const workOrder = AppData.workOrders.find(
+            (wo) => wo.id === workOrderId
+          );
+          if (!workOrder) return;
+
+          const relatedInvoices = AppData.invoices.filter((inv) =>
+            workOrder.invoices.includes(inv.id)
+          );
+
+          const totalInvoices = relatedInvoices.reduce(
+            (sum, inv) => sum + inv.total,
+            0
+          );
+          const totalPaid = relatedInvoices.reduce(
+            (sum, inv) => sum + inv.paid,
+            0
+          );
+          const totalRemaining = totalInvoices - totalPaid;
+
+          // تحديث البيانات في المودال
+          document.getElementById("workOrderInvoicesName").textContent =
+            workOrder.name;
+          document.getElementById("workOrderTotalInvoices").textContent =
+            totalInvoices.toFixed(2) + " ج.م";
+          document.getElementById("workOrderTotalPaid").textContent =
+            totalPaid.toFixed(2) + " ج.م";
+          document.getElementById("workOrderTotalRemaining").textContent =
+            totalRemaining.toFixed(2) + " ج.م";
+
+          // ملء جدول الفواتير
+          const tbody = document.getElementById("workOrderInvoicesList");
+          tbody.innerHTML = "";
+
+          relatedInvoices.forEach((invoice) => {
+            const row = document.createElement("tr");
+
+            // نسخ نفس بنية الصف من جدول الفواتير الرئيسي
+            let statusBadge = "";
+            if (invoice.status === "pending") {
+              statusBadge =
+                '<span class="status-badge badge-pending">مؤجل</span>';
+            } else if (invoice.status === "partial") {
+              statusBadge =
+                '<span class="status-badge badge-partial">جزئي</span>';
+            } else if (invoice.status === "paid") {
+              statusBadge = '<span class="status-badge badge-paid">مسلم</span>';
+            } else if (invoice.status === "returned") {
+              statusBadge =
+                '<span class="status-badge badge-returned">مرتجع</span>';
+            }
+
+            // إنشاء tooltip للبنود (مهم جداً)
+            let itemsTooltip = "";
+            if (invoice.items && invoice.items.length > 0) {
+              const itemsList = invoice.items
+                .map((item) => {
+                  const returnedText =
+                    item.returnedQuantity > 0
+                      ? ` (مرتجع: ${item.returnedQuantity})`
+                      : "";
+                  const itemTotal = (item.quantity || 0) * (item.price || 0);
+                  return `
+                    <div class="tooltip-item">
+                        <div>
+                            <div class="tooltip-item-name">${
+                              item.productName || "منتج"
+                            }</div>
+                            <div class="tooltip-item-details">الكمية: ${
+                              item.quantity || 0
+                            } | السعر: ${(item.price || 0).toFixed(
+                    2
+                  )} ج.م${returnedText}</div>
+                        </div>
+                        <div class="fw-bold">${itemTotal.toFixed(2)} ج.م</div>
+                    </div>
+                `;
+                })
+                .join("");
+
+              itemsTooltip = `
+                <div class="invoice-items-tooltip tooltip-item" >
+                    <div class="tooltip-header" style="font-weight: bold; border-bottom: 1px solid #dee2e6; padding-bottom: 5px; margin-bottom: 10px;">بنود الفاتورة ${
+                      invoice.number
+                    }</div>
+                    ${itemsList}
+                    <div class="tooltip-total" style="display: flex; justify-content: space-between; font-weight: bold; border-top: 1px solid #dee2e6; padding-top: 10px; margin-top: 10px;">
+                        <span>الإجمالي:</span>
+                        <span>${invoice.total.toFixed(2)} ج.م</span>
+                    </div>
+                </div>
+            `;
+            }
+
+            // تحديد لون المبلغ المتبقي
+            let remainingColor = "text-danger";
+            if (invoice.remaining === 0) {
+              remainingColor = "text-success";
+            } else if (invoice.status === "partial") {
+              remainingColor = "text-warning";
+            }
+
+            row.innerHTML = `
+            <td class="position-relative" style="position: relative;">
+                <div class="invoice-item-hover" style="position: relative; display: inline-block; cursor: pointer;">
+                    ${invoice.number}
+                    <br><small class="text-muted">(مرر للعرض)</small>
+                    ${itemsTooltip}
+                </div>
+            </td>
+            <td>${invoice.date}</td>
+            <td>${invoice.total.toFixed(2)} ج.م</td>
+            <td>${invoice.paid.toFixed(2)} ج.م</td>
+            <td><span class="${remainingColor} fw-bold">${invoice.remaining.toFixed(
+              2
+            )} ج.م</span></td>
+            <td>${statusBadge}</td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn btn-sm btn-outline-info view-work-order-invoice" data-invoice-id="${
+                      invoice.id
+                    }">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    ${
+                      invoice.status !== "paid" && invoice.status !== "returned"
+                        ? `
+                    <button class="btn btn-sm btn-outline-success pay-work-order-invoice" data-invoice-id="${invoice.id}">
+                        <i class="fas fa-money-bill-wave"></i>
+                    </button>
+                    `
+                        : ""
+                    }
+                    ${
+                      invoice.status !== "returned"
+                        ? `
+                    <button class="btn btn-sm btn-outline-warning custom-return-work-order-invoice" data-invoice-id="${invoice.id}">
+                        <i class="fas fa-undo"></i>
+                    </button>
+                    `
+                        : ""
+                    }
+                    <button class="btn btn-sm btn-outline-secondary print-work-order-invoice" data-invoice-id="${
+                      invoice.id
+                    }">
+                        <i class="fas fa-print"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+
+            tbody.appendChild(row);
+          });
+
+          // إضافة مستمعي الأحداث للأزرار داخل المودال
+          this.attachWorkOrderModalEventListeners();
+
+          // إضافة مستمعي الأحداث للتولتيب
+          setTimeout(() => {
+            this.attachTooltipEvents();
+          }, 100);
+
+          // فتح المودال
+          const modal = new bootstrap.Modal(
+            document.getElementById("workOrderInvoicesModal")
+          );
+          modal.show();
+        },
+
+        attachTooltipEvents() {
+          // إضافة أحداث التولتيب للعناصر داخل المودال
+          document
+            .querySelectorAll("#workOrderInvoicesList .invoice-item-hover")
+            .forEach((element) => {
+              element.addEventListener("mouseenter", function (e) {
+                const tooltip = this.querySelector(".invoice-items-tooltip");
+                if (tooltip) {
+                  tooltip.style.display = "block";
+                  tooltip.style.zIndex = "9999";
+                }
+              });
+
+              element.addEventListener("mouseleave", function (e) {
+                const tooltip = this.querySelector(".invoice-items-tooltip");
+                if (tooltip) {
+                  tooltip.style.display = "none";
+                }
+              });
+            });
+        },
+        attachWorkOrderModalEventListeners() {
+          // هذه الدالة ستضيف event listeners للأزرار داخل المودال
+          setTimeout(() => {
+            // زر عرض الفاتورة
+            document
+              .querySelectorAll(
+                "#workOrderInvoicesList .view-work-order-invoice"
+              )
+              .forEach((btn, index) => {
+                btn.addEventListener("click", function () {
+                  const invoiceId = parseInt(
+                    this.getAttribute("data-invoice-id")
+                  );
+                  InvoiceManager.showInvoiceDetails(invoiceId);
+
+                  // إغلاق مودال الشغلانة
+                  const m = document.getElementById("invoiceItemsModal");
+                  m.style.zIndex = 1060;
+
+                  // إعادة تعيين z-index للمودال بعد فتح المودال الآخر
+                });
+              });
+
+            // زر سداد الفاتورة
+            document
+              .querySelectorAll(
+                "#workOrderInvoicesList .pay-work-order-invoice"
+              )
+              .forEach((btn) => {
+                btn.addEventListener("click", function () {
+                  const invoiceId = parseInt(
+                    this.getAttribute("data-invoice-id")
+                  );
+
+                  // إغلاق مودال الشغلانة أولاً
+                  const modal = bootstrap.Modal.getInstance(
+                    document.getElementById("workOrderInvoicesModal")
+                  );
+                  modal.hide();
+
+                  // فتح مودال السداد
+                  PaymentManager.openSingleInvoicePayment(invoiceId);
+                });
+              });
+
+            // زر إرجاع الفاتورة
+            document
+              .querySelectorAll(
+                "#workOrderInvoicesList .custom-return-work-order-invoice"
+              )
+              .forEach((btn) => {
+                btn.addEventListener("click", function () {
+                  const invoiceId = parseInt(
+                    this.getAttribute("data-invoice-id")
+                  );
+
+                  // إغلاق مودال الشغلانة أولاً
+                  const modal = bootstrap.Modal.getInstance(
+                    document.getElementById("workOrderInvoicesModal")
+                  );
+                  modal.hide();
+
+                  // فتح مودال الإرجاع
+                  CustomReturnManager.openReturnModal(invoiceId);
+                });
+              });
+
+            // زر طباعة الفاتورة
+            document
+              .querySelectorAll(
+                "#workOrderInvoicesList .print-work-order-invoice"
+              )
+              .forEach((btn) => {
+                btn.addEventListener("click", function () {
+                  const invoiceId = parseInt(
+                    this.getAttribute("data-invoice-id")
+                  );
+
+                  // إغلاق مودال الشغلانة أولاً
+                  const modal = bootstrap.Modal.getInstance(
+                    document.getElementById("workOrderInvoicesModal")
+                  );
+                  modal.hide();
+
+                  // فتح مودال الطباعة
+                  PrintManager.printSingleInvoice(invoiceId);
+                });
+              });
+          }, 100);
+        },
+      };
+            export default WorkOrderManager;

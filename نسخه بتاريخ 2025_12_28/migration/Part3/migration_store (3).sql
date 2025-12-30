@@ -282,7 +282,8 @@ CREATE TABLE `customers` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp() COMMENT 'تاريخ الإضافة',
   `balance` decimal(12,2) DEFAULT 0.00 COMMENT 'الرصيد الحالي (مدين + / دائن -)',
   `wallet` decimal(12,2) DEFAULT 0.00 COMMENT 'رصيد المحفظة',
-  `join_date` date DEFAULT curdate() COMMENT 'تاريخ الانضمام'
+  `join_date` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+COMMENT 'تاريخ ووقت الانضمام'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
@@ -551,7 +552,7 @@ INSERT INTO `invoices_out` (`id`, `customer_id`, `delivered`, `invoice_group`, `
 (90, 15, 'yes', 'group1', 8, '2025-10-26 20:37:32', 8, '2025-10-30 19:21:26', 'الدريسينج', NULL, NULL, 0.00, 'percent', 0.00, 0.00, 0.00, 0.00, 0.00),
 (91, 11, 'yes', 'group1', 8, '2025-10-26 20:39:15', 8, '2025-10-31 14:44:16', 'خدهم زياد للمكبس', NULL, NULL, 0.00, 'percent', 0.00, 0.00, 0.00, 0.00, 0.00),
 (92, 10, 'yes', 'group1', 8, '2025-10-26 20:41:54', 8, '2025-11-11 19:31:01', 'شغل روماني', NULL, NULL, 0.00, 'percent', 0.00, 0.00, 0.00, 0.00, 0.00),
-(93, 8, 'no', 'group1', 8, '2025-10-26 20:43:46', 8, '2025-11-11 20:13:29', 'محمد حجاج', NULL, NULL, 0.00, 'percent', 0.00, 0.00, 0.00, 0.00, 0.00),
+(93, 8, 'no', 'group1', 8, '2025-10-26 20:43:46', 8, '2025-11-11 20:13:29', 'محمد حجاج', NULL, NULL, 90.00, 'percent', 0.00, 0.00, 0.00, 0.00, 0.00),
 (94, 15, 'yes', 'group1', 8, '2025-10-26 20:44:50', 8, '2025-10-30 19:21:43', 'الدريسنج', NULL, NULL, 0.00, 'percent', 0.00, 0.00, 0.00, 0.00, 0.00),
 (95, 15, 'yes', 'group1', 8, '2025-10-27 10:19:13', 8, '2025-10-30 19:21:40', 'الدريسنج', NULL, NULL, 0.00, 'percent', 0.00, 0.00, 0.00, 0.00, 0.00),
 (96, 15, 'yes', 'group1', 8, '2025-10-27 14:54:55', 8, '2025-10-30 19:21:39', 'الدريسنج', NULL, NULL, 0.00, 'percent', 0.00, 0.00, 0.00, 0.00, 0.00),
@@ -1031,9 +1032,9 @@ CREATE TABLE `invoice_out_items` (
   `discount_amount` decimal(12,2) DEFAULT 0.00,
   `total_after_discount` decimal(12,2) DEFAULT 0.00,
   `returned_quantity` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT 'الكمية المرتجعة',
-  `available_for_return` decimal(10,2) GENERATED ALWAYS AS (`quantity` - `returned_quantity`) STORED COMMENT 'الكمية المتاحة للمرتجع',
-  `return_flag` tinyint(1) GENERATED ALWAYS AS (case when `returned_quantity` >= `quantity` then 1 else 0 end) STORED COMMENT '1 إذا تم إرجاع البند بالكامل، 0 غير مكتمل',
-  `unit_price_after_discount` decimal(10,2) GENERATED ALWAYS AS (case when `quantity` >= 1 then `total_after_discount` / `quantity` else `total_after_discount` end) STORED
+  `available_for_return` decimal(10,2) GENERATED ALWAYS AS (`quantity` - `returned_quantity`)  COMMENT 'الكمية المتاحة للمرتجع',
+  `return_flag` tinyint(1) GENERATED ALWAYS AS (case when `returned_quantity` >= `quantity` then 1 else 0 end)  COMMENT '1 إذا تم إرجاع البند بالكامل، 0 غير مكتمل',
+  `unit_price_after_discount` decimal(10,2) GENERATED ALWAYS AS (case when `quantity` >= 1 then `total_after_discount` / `quantity` else `total_after_discount` end) 
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --

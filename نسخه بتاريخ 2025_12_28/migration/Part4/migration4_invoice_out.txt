@@ -85,3 +85,11 @@ COMMENT 'مكان تطبيق الخصم';
 ALTER TABLE invoices_out
 MODIFY delivered ENUM('yes','no','canceled','reverted','partial')
 NOT NULL DEFAULT 'no';
+
+
+
+
+ALTER TABLE invoice_out_items
+ADD COLUMN price_type ENUM('retail','wholesale') 
+NOT NULL DEFAULT 'wholesale' COMMENT 'نوع السعر';
+

@@ -1,0 +1,21 @@
+.custom-table tbody tr:nth-child(odd) {
+  background: var(--row-alt-2) !important;
+  /* زيادة التباين وإبداع لوني */
+  background-image: linear-gradient(90deg, #e0e7ff 0%, #f3f6fb 100%);
+  box-shadow: 0 2px 0 0 var(--row-border-strong) inset, 2px 0 0 0 #a5b4fc inset;
+  border-left: 4px solid #6366f1;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.custom-table tbody tr:nth-child(even) {
+  background-image: linear-gradient(90deg, #fef9c3 0%, #fff 100%);
+  box-shadow: 0 2px 0 0 var(--row-border) inset, -2px 0 0 0 #fbbf24 inset;
+  border-right: 4px solid #f59e0b;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.custom-table tbody tr:hover {
+  background: linear-gradient(90deg, #dbeafe 0%, #ede9fe 100%) !important;
+  box-shadow: 0 4px 12px 0 rgba(59,130,246,0.10) inset, 0 0 0 2px #7c3aed inset;
+  border-left: 4px solid #7c3aed;
+  border-right: 4px solid #f59e0b;
+  filter: brightness(1.04);
+}
